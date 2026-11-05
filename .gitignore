@@ -4,3 +4,17 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 node_modules/
+
+# secrets: never commit
+tv.json
+hub.key
+*.key
+.env
+
+# iOS build output
+ios/build/
+ios/DerivedData/
+ios/*.xcodeproj/
+xcuserdata/
+*.ipa
+.DS_Store
