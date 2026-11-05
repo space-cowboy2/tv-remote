@@ -90,9 +90,7 @@ async def test_list_and_launch_apps(fake):
         assert {a["name"] for a in apps} == {"Netflix", "YouTube"}
         await tv.launch_app("3201907018807")
         await asyncio.sleep(0.05)
-    launch = fake.received[-1]["params"]
-    assert launch["event"] == "ed.apps.launch"
-    assert launch["data"]["appId"] == "3201907018807"
+    assert fake.launched == ["3201907018807"]
 
 
 async def test_reconnects_after_drop(fake):
@@ -199,3 +197,19 @@ def test_pair_uses_model_when_modelname_is_zero(monkeypatch, tmp_path):
 def test_clean_name_unescapes_twice():
     assert SamsungTV.clean_name("[TV] 42&amp;quot; OLED") == '[TV] 42" OLED'
     assert SamsungTV.clean_name(None) == "TV"
+
+
+async def test_apps_fallback_for_2024_firmware(fake):
+    fake.answers_installed_apps = False
+    fake.apps.append({"appId": "3201910019365", "name": "Prime Video", "app_type": 2})
+    fake.apps.append({"appId": "11101200001", "name": "Netflix", "app_type": 2})  # duplicate old ID
+    async with client(fake) as tv:
+        apps = await tv.list_apps()
+    assert sorted(a["name"] for a in apps) == ["Netflix", "Prime Video", "YouTube"]
+
+
+async def test_launch_missing_app_errors(fake):
+    from tvremote import TVError
+    async with client(fake) as tv:
+        with pytest.raises(TVError, match="not installed"):
+            await tv.launch_app("999")

@@ -22,6 +22,7 @@ import html
 import json
 import logging
 import ssl
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from typing import Any
@@ -29,6 +30,7 @@ from typing import Any
 import websockets
 from websockets.asyncio.client import ClientConnection
 
+from .apps import KNOWN_APPS
 from .keys import normalize_key
 from .wol import send_wol
 
@@ -222,14 +224,17 @@ class SamsungTV:
                 if attempt == 2:
                     raise TVUnreachable("connection to TV lost")
 
-    async def _request(self, payload: dict[str, Any], reply_event: str) -> dict[str, Any]:
+    async def _request(self, payload: dict[str, Any], reply_event: str, timeout: float | None = None) -> dict[str, Any]:
         await self.connect()
         fut: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._waiters.setdefault(reply_event, []).append(fut)
         await self._send(payload)
         try:
-            return await asyncio.wait_for(fut, timeout=self.request_timeout)
+            return await asyncio.wait_for(fut, timeout=timeout or self.request_timeout)
         except asyncio.TimeoutError as e:
+            waiters = self._waiters.get(reply_event, [])
+            if fut in waiters:
+                waiters.remove(fut)
             raise TVError(f"TV did not answer {reply_event!r}") from e
 
     # ------------------------------------------------------------------ commands
@@ -280,14 +285,73 @@ class SamsungTV:
         })
 
     async def list_apps(self) -> list[dict[str, Any]]:
-        msg = await self._request(
-            {"method": "ms.channel.emit", "params": {"event": "ed.installedApp.get", "to": "host"}},
-            reply_event="ed.installedApp.get",
-        )
-        apps = ((msg.get("data") or {}).get("data")) or []
-        return [{"id": a.get("appId"), "name": a.get("name"), "type": a.get("app_type")} for a in apps]
+        """Installed apps. Older firmware answers `ed.installedApp.get`; 2024
+        firmware ignores it, so fall back to probing known app IDs over REST."""
+        try:
+            msg = await self._request(
+                {"method": "ms.channel.emit", "params": {"event": "ed.installedApp.get", "to": "host"}},
+                reply_event="ed.installedApp.get",
+                timeout=2.5,
+            )
+            apps = ((msg.get("data") or {}).get("data")) or []
+            if apps:
+                return [{"id": a.get("appId"), "name": a.get("name"), "type": a.get("app_type")} for a in apps]
+        except TVUnreachable:
+            raise
+        except TVError:
+            log.info("TV ignored ed.installedApp.get; probing known apps over REST")
+        return await self._probe_known_apps()
+
+    async def _probe_known_apps(self) -> list[dict[str, Any]]:
+        sem = asyncio.Semaphore(6)
+
+        async def probe(app_id: str, fallback_name: str) -> dict[str, Any] | None:
+            async with sem:
+                data = await self.app_status(app_id)
+            if not data:
+                return None
+            return {"id": app_id, "name": data.get("name") or fallback_name, "type": None,
+                    "running": bool(data.get("running"))}
+
+        found = await asyncio.gather(*(probe(i, n) for i, n in KNOWN_APPS.items()))
+        apps, names = [], set()
+        for a in found:
+            if a and a["name"] not in names:  # skip duplicate IDs of the same app
+                names.add(a["name"])
+                apps.append(a)
+        return apps
+
+    def _rest(self, method: str, path: str) -> tuple[int, dict[str, Any] | None]:
+        req = urllib.request.Request(f"http://{self.host}:{self.info_port}{path}", method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=self.request_timeout) as r:
+                body = r.read()
+                try:
+                    return r.status, json.loads(body) if body else None
+                except ValueError:
+                    return r.status, None
+        except urllib.error.HTTPError as e:
+            return e.code, None
+
+    async def app_status(self, app_id: str) -> dict[str, Any] | None:
+        """{id, name, running, visible, version} or None if not installed."""
+        try:
+            code, data = await asyncio.to_thread(self._rest, "GET", f"/api/v2/applications/{app_id}")
+        except OSError as e:
+            raise TVUnreachable(f"cannot reach TV at {self.host}: {e}") from e
+        return data if code == 200 and isinstance(data, dict) else None
 
     async def launch_app(self, app_id: str, deep_link: bool = True, meta_tag: str = "") -> None:
+        """Open an app. Uses the REST endpoint (works on all recent firmware),
+        falling back to the WebSocket launch event."""
+        try:
+            code, _ = await asyncio.to_thread(self._rest, "POST", f"/api/v2/applications/{app_id}")
+            if 200 <= code < 300:
+                return
+            if code == 404:
+                raise TVError(f"app {app_id} is not installed")
+        except OSError:
+            pass
         await self._send({
             "method": "ms.channel.emit",
             "params": {
