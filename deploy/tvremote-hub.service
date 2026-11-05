@@ -1,0 +1,25 @@
+# systemd unit for a Raspberry Pi or other Linux hub.
+# Install: see README "Run the hub on boot".
+[Unit]
+Description=TV Remote hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=tvremote
+WorkingDirectory=/opt/tvremote
+Environment=TVREMOTE_BIND=0.0.0.0
+Environment=TVREMOTE_PORT=8080
+Environment=TVREMOTE_CONFIG=/var/lib/tvremote/tv.json
+Environment=TVREMOTE_WEB_DIR=/opt/tvremote/web
+ExecStart=/opt/tvremote/.venv/bin/tvremote-hub
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tvremote
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
