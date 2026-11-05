@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import json
 import logging
 import ssl
@@ -314,6 +315,17 @@ class SamsungTV:
             return await asyncio.to_thread(fetch)
         except (OSError, ValueError) as e:
             raise TVUnreachable(f"TV info unavailable at {url}: {e}") from e
+
+    @staticmethod
+    def clean_name(raw: str | None) -> str:
+        """TVs report names HTML-escaped, sometimes twice (42&amp;quot; OLED)."""
+        name = raw or "TV"
+        for _ in range(3):
+            unescaped = html.unescape(name)
+            if unescaped == name:
+                break
+            name = unescaped
+        return name
 
     async def power_state(self) -> str:
         """'on', 'standby' or 'off' (unreachable)."""

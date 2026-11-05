@@ -58,7 +58,8 @@ async def run(args: argparse.Namespace) -> int:
         if not model or model == "0":
             model = device.get("model") or device.get("name")
         cfg.model = model
-        print(f"Found {device.get('name', 'TV')} ({cfg.model}). Press Allow on the TV now...")
+        print(f"Found {SamsungTV.clean_name(device.get('name'))} ({cfg.model}). Press Allow on the TV within 60 seconds...")
+        tv.pair_timeout = 60
         await tv.connect()
         await tv.close()
         path = cfg.save()
