@@ -1,0 +1,25 @@
+name: TVRemote
+options:
+  bundleIdPrefix: com.tvremote
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""          # set your Apple ID team in Xcode > Signing
+    CODE_SIGN_STYLE: Automatic
+targets:
+  TVRemote:
+    type: application
+    platform: iOS
+    sources: [TVRemote]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tvremote.app
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: TVRemote/Info.plist
