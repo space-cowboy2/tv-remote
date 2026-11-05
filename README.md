@@ -2,7 +2,7 @@
 
 Control a Samsung TV (2016+ Tizen, built for the 2024 S90D OLED) from any device.
 
-Status: **Steps 1–2 of 4 done:** TV connection library + CLI, and the home hub API. Web app and remote access come next.
+Status: **Steps 1–3 of 4 done:** TV connection library + CLI, home hub API, and the web app. Remote access (step 4) comes next.
 
 ## Before you start (on the TV)
 
@@ -59,12 +59,23 @@ API (all except `/api/health` and `/api/login` need the key):
 - **Raspberry Pi / Linux:** `deploy/tvremote-hub.service` (systemd). Create a `tvremote` user, install to `/opt/tvremote` with a venv, pair with `TVREMOTE_CONFIG=/var/lib/tvremote/tv.json`, then `sudo cp deploy/tvremote-hub.service /etc/systemd/system/ && sudo systemctl enable --now tvremote-hub`.
 - **Mac:** `deploy/com.tvremote.hub.plist` (launchd). Replace `YOU` with your username, copy to `~/Library/LaunchAgents/`, and run `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tvremote.hub.plist`. Turn off sleep in System Settings > Energy.
 
+## The remote app
+
+The hub serves the app from `web/` (set `TVREMOTE_WEB_DIR`, already set in the service files). Open `http://<hub IP>:8080` on any phone, tablet or computer, sign in with the access key once, and use **Add to Home Screen** to install it like an app (offline caching and install need HTTPS, which step 4 adds).
+
+- Remote: power, D-pad, back/home/settings, volume and channel (hold to repeat), mute, source, media, numbers, color keys
+- Apps: tap to launch any installed TV app
+- Keyboard: type into TV search boxes
+- Desktop shortcuts: arrows, Enter, Backspace (back), Esc (home), +/- (volume), M (mute), Space (play), 0–9
+
 ## Develop without a TV
 
 ```bash
 pip install -e '.[dev]'
 pytest                            # runs against a simulated TV
 python -m tvremote.fake           # standalone simulated TV on ports 8001/8002 (no TLS)
+python -m tvremote.devserver      # hub + web app + simulated TV at http://localhost:8080 (key: dev)
+node tests/e2e/remote.spec.mjs    # browser tests (needs devserver running and Playwright)
 ```
 
 ## Security notes

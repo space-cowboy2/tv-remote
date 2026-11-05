@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0e0f12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Remote">
+  <title>TV Remote</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Sign in -->
+  <main id="login" class="screen" hidden>
+    <form id="login-form" class="card">
+      <img src="icon.svg" alt="" width="72" height="72">
+      <h1>TV Remote</h1>
+      <p class="muted">Enter the hub access key. You only need to do this once per device.</p>
+      <label for="key" class="sr-only">Access key</label>
+      <input id="key" name="key" type="password" autocomplete="current-password" placeholder="Access key" required>
+      <button type="submit" class="primary">Sign in</button>
+      <p id="login-error" class="error" role="alert"></p>
+    </form>
+  </main>
+
+  <!-- Remote -->
+  <div id="app" class="screen" hidden>
+    <header class="topbar">
+      <span id="status" class="status" aria-live="polite"><i></i><span>Connecting…</span></span>
+      <button id="power" class="icon-btn power" aria-label="Power" data-action="power">
+        <svg viewBox="0 0 24 24"><path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+      </button>
+    </header>
+
+    <section id="tab-remote" class="tab" role="tabpanel">
+      <div class="row three">
+        <button data-key="KEY_RETURN" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+        <button data-key="KEY_HOME" aria-label="Home"><svg viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg></button>
+        <button data-key="KEY_MENU" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+      </div>
+
+      <div class="dpad" role="group" aria-label="Navigation">
+        <button class="up" data-key="KEY_UP" data-repeat aria-label="Up"><svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg></button>
+        <button class="left" data-key="KEY_LEFT" data-repeat aria-label="Left"><svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+        <button class="ok" data-key="KEY_ENTER" aria-label="OK">OK</button>
+        <button class="right" data-key="KEY_RIGHT" data-repeat aria-label="Right"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+        <button class="down" data-key="KEY_DOWN" data-repeat aria-label="Down"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      </div>
+
+      <div class="row rockers">
+        <div class="rocker" role="group" aria-label="Volume">
+          <button data-key="KEY_VOLUP" data-repeat aria-label="Volume up">+</button>
+          <span>VOL</span>
+          <button data-key="KEY_VOLDOWN" data-repeat aria-label="Volume down">−</button>
+        </div>
+        <div class="col">
+          <button data-key="KEY_MUTE" aria-label="Mute"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"/></svg></button>
+          <button data-key="KEY_SOURCE" aria-label="Source"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>
+        </div>
+        <div class="rocker" role="group" aria-label="Channel">
+          <button data-key="KEY_CHUP" aria-label="Channel up"><svg viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg></button>
+          <span>CH</span>
+          <button data-key="KEY_CHDOWN" aria-label="Channel down"><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+        </div>
+      </div>
+
+      <div class="row four">
+        <button data-key="KEY_REWIND" aria-label="Rewind"><svg viewBox="0 0 24 24"><path d="M11 19 2 12l9-7zM22 19l-9-7 9-7z"/></svg></button>
+        <button data-key="KEY_PLAY" aria-label="Play"><svg viewBox="0 0 24 24"><path d="m6 4 14 8-14 8z"/></svg></button>
+        <button data-key="KEY_PAUSE" aria-label="Pause"><svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
+        <button data-key="KEY_FF" aria-label="Fast forward"><svg viewBox="0 0 24 24"><path d="m13 19 9-7-9-7zM2 19l9-7-9-7z"/></svg></button>
+      </div>
+
+      <details class="more">
+        <summary>Numbers &amp; more</summary>
+        <div class="numpad">
+          <button data-key="KEY_1">1</button><button data-key="KEY_2">2</button><button data-key="KEY_3">3</button>
+          <button data-key="KEY_4">4</button><button data-key="KEY_5">5</button><button data-key="KEY_6">6</button>
+          <button data-key="KEY_7">7</button><button data-key="KEY_8">8</button><button data-key="KEY_9">9</button>
+          <button data-key="KEY_INFO">Info</button><button data-key="KEY_0">0</button><button data-key="KEY_GUIDE">Guide</button>
+        </div>
+        <div class="row four colors">
+          <button data-key="KEY_RED" class="c-red" aria-label="Red">A</button>
+          <button data-key="KEY_GREEN" class="c-green" aria-label="Green">B</button>
+          <button data-key="KEY_YELLOW" class="c-yellow" aria-label="Yellow">C</button>
+          <button data-key="KEY_CYAN" class="c-blue" aria-label="Blue">D</button>
+        </div>
+        <div class="row three">
+          <button data-key="KEY_CAPTION">Captions</button>
+          <button data-key="KEY_TOOLS">Tools</button>
+          <button data-key="KEY_AMBIENT">Ambient</button>
+        </div>
+      </details>
+    </section>
+
+    <section id="tab-apps" class="tab" role="tabpanel" hidden>
+      <div class="tab-head"><h2>Apps</h2><button id="apps-refresh" class="link">Refresh</button></div>
+      <div id="apps" class="apps" aria-live="polite"></div>
+    </section>
+
+    <section id="tab-keyboard" class="tab" role="tabpanel" hidden>
+      <h2>Type on TV</h2>
+      <p class="muted">Open a search box on the TV first, then type here.</p>
+      <form id="text-form" class="stack">
+        <label for="text" class="sr-only">Text</label>
+        <input id="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="500" placeholder="Search…">
+        <div class="row two">
+          <button type="submit" class="primary">Send</button>
+          <button type="button" id="text-submit">Send + Enter</button>
+        </div>
+      </form>
+      <div class="row three">
+        <button data-key="KEY_LEFT">◀</button>
+        <button data-key="KEY_ENTER">OK</button>
+        <button data-key="KEY_RIGHT">▶</button>
+      </div>
+      <button id="logout" class="link danger">Sign out of this device</button>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="remote" aria-selected="true">
+        <svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="3"/><circle cx="12" cy="9" r="2"/></svg>Remote</button>
+      <button role="tab" data-tab="apps" aria-selected="false">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Apps</button>
+      <button role="tab" data-tab="keyboard" aria-selected="false">
+        <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>Keyboard</button>
+    </nav>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+  <script src="app.js" type="module"></script>
+</body>
+</html>
