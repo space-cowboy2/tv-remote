@@ -17,7 +17,7 @@ import json
 import sys
 
 from .config import TVConfig, default_path
-from .discovery import discover
+from .discovery import DiscoveryError, discover
 from .keys import is_valid_key, normalize_key
 from .samsung import SamsungTV, TVError
 
@@ -39,7 +39,11 @@ def _require_config() -> TVConfig:
 
 async def run(args: argparse.Namespace) -> int:
     if args.cmd == "discover":
-        hosts = await discover(args.timeout)
+        try:
+            hosts = await discover(args.timeout, args.interface)
+        except DiscoveryError as e:
+            print(e, file=sys.stderr)
+            return 2
         print("\n".join(hosts) if hosts else "No Samsung TVs found. Is this computer on the same Wi-Fi?")
         return 0 if hosts else 1
 
@@ -49,7 +53,11 @@ async def run(args: argparse.Namespace) -> int:
         info = await tv.info()
         device = info.get("device") or {}
         cfg.mac = device.get("wifiMac")
-        cfg.model = device.get("modelName")
+        model = device.get("modelName")
+        # Some 2024 models report modelName "0"; fall back to model/name.
+        if not model or model == "0":
+            model = device.get("model") or device.get("name")
+        cfg.model = model
         print(f"Found {device.get('name', 'TV')} ({cfg.model}). Press Allow on the TV now...")
         await tv.connect()
         await tv.close()
@@ -91,6 +99,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("discover", help="find TVs on the network")
     d.add_argument("--timeout", type=float, default=3.0)
+    d.add_argument("--interface", help="this computer's LAN IP, to avoid VPN routes (e.g. Tailscale)")
     pr = sub.add_parser("pair", help="pair with a TV (press Allow on the TV)")
     pr.add_argument("--host", required=True)
     pr.add_argument("--name", default="TV Remote")

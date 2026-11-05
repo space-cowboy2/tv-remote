@@ -24,6 +24,8 @@ tvremote off
 tvremote on
 ```
 
+**macOS:** the first network call asks for Local Network access. Allow it (System Settings > Privacy & Security > Local Network) for your terminal, and later for the hub's Python, or discovery fails with "No route to host". You can always skip discovery with `pair --host <TV IP>`. If a VPN like Tailscale grabs multicast, use `tvremote discover --interface <this computer's LAN IP>`.
+
 Pairing info (IP, MAC, token) is saved to `~/.config/tvremote/tv.json` with owner-only permissions.
 
 ## Run the home hub

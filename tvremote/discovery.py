@@ -1,14 +1,33 @@
-"""Find Samsung TVs on the LAN with SSDP."""
+"""Find Samsung TVs on the LAN with SSDP, falling back to mDNS (_samsungmsf._tcp).
+
+On macOS, Python needs Local Network permission (System Settings > Privacy &
+Security > Local Network). Without it, sending to the network fails with
+"No route to host" (errno 65).
+"""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import socket
 from urllib.parse import urlparse
 
+log = logging.getLogger(__name__)
+
 SSDP_ADDR = ("239.255.255.250", 1900)
 SEARCH_TARGET = "urn:samsung.com:device:RemoteControlReceiver:1"
+MDNS_TYPE = "_samsungmsf._tcp.local."
+
+LOCAL_NETWORK_HINT = (
+    "The network blocked discovery. On macOS, allow Local Network access for your "
+    "terminal/Python in System Settings > Privacy & Security > Local Network, or "
+    "pass the TV's IP directly with --host."
+)
+
+
+class DiscoveryError(Exception):
+    pass
 
 
 def _search_message(st: str = SEARCH_TARGET, mx: int = 2) -> bytes:
@@ -30,10 +49,13 @@ def parse_response(data: bytes) -> str | None:
     return urlparse(m.group(1)).hostname
 
 
-def _discover_blocking(timeout: float) -> list[str]:
+def _ssdp_blocking(timeout: float, interface: str | None) -> list[str]:
     found: list[str] = []
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as s:
         s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        if interface:
+            # Pin multicast to the LAN interface (VPNs like Tailscale can steal the route).
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(interface))
         s.settimeout(timeout)
         s.sendto(_search_message(), SSDP_ADDR)
         try:
@@ -47,5 +69,59 @@ def _discover_blocking(timeout: float) -> list[str]:
     return found
 
 
-async def discover(timeout: float = 3.0) -> list[str]:
-    return await asyncio.to_thread(_discover_blocking, timeout)
+def _mdns_blocking(timeout: float) -> list[str]:
+    try:
+        from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
+    except ImportError:
+        return []
+
+    names: list[str] = []
+
+    class Listener(ServiceListener):
+        def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+            names.append(name)
+
+        def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+            pass
+
+        def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+            pass
+
+    import time
+
+    zc = Zeroconf()
+    try:
+        ServiceBrowser(zc, MDNS_TYPE, Listener())
+        time.sleep(timeout)
+        hosts: list[str] = []
+        for name in names:
+            info = zc.get_service_info(MDNS_TYPE, name, timeout=int(timeout * 1000))
+            for addr in (info.parsed_addresses() if info else []):
+                if ":" not in addr and addr not in hosts:
+                    hosts.append(addr)
+        return hosts
+    finally:
+        zc.close()
+
+
+def _discover_blocking(timeout: float, interface: str | None) -> list[str]:
+    errors: list[OSError] = []
+    hosts: list[str] = []
+    try:
+        hosts = _ssdp_blocking(timeout, interface)
+    except OSError as e:
+        log.debug("SSDP failed: %s", e)
+        errors.append(e)
+    if not hosts:
+        try:
+            hosts = _mdns_blocking(timeout)
+        except OSError as e:
+            log.debug("mDNS failed: %s", e)
+            errors.append(e)
+    if not hosts and errors:
+        raise DiscoveryError(f"{LOCAL_NETWORK_HINT} ({errors[0]})")
+    return hosts
+
+
+async def discover(timeout: float = 3.0, interface: str | None = None) -> list[str]:
+    return await asyncio.to_thread(_discover_blocking, timeout, interface)
