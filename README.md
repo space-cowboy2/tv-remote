@@ -57,7 +57,7 @@ API (all except `/api/health` and `/api/login` need the key):
 ### Run the hub on boot
 
 - **Raspberry Pi / Linux:** `deploy/tvremote-hub.service` (systemd). Create a `tvremote` user, install to `/opt/tvremote` with a venv, pair with `TVREMOTE_CONFIG=/var/lib/tvremote/tv.json`, then `sudo cp deploy/tvremote-hub.service /etc/systemd/system/ && sudo systemctl enable --now tvremote-hub`.
-- **Mac (recommended, used for the Mac Mini):** `deploy/com.tvremote.hub.plist` (launchd). Replace `YOU` with your username, copy to `~/Library/LaunchAgents/`, and run `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tvremote.hub.plist`. Turn off sleep in System Settings > Energy.
+- **Mac (recommended, used for the Mac Mini):** run `deploy/macos/build-app.sh` (optionally pass the venv path). It builds a tiny `~/Applications/TVRemoteHub.app` wrapper and installs the launchd agent. The wrapper is needed because macOS only grants Local Network access to apps: a bare Python started by launchd gets "No route to host" (errno 65) to the TV even after you click Allow. Click **Allow** when macOS asks about TV Remote Hub. Turn off sleep in System Settings > Energy. (`deploy/com.tvremote.hub.plist` is the plain agent for reference; it hits that errno 65 issue.)
 
 ## Access from anywhere (Tailscale)
 
@@ -87,7 +87,7 @@ Devices stay signed in for a year with an HttpOnly cookie derived from the key (
 | App says "TV off or unreachable" | TV unplugged, or not on Wi-Fi. Check `tvremote status` on the hub. |
 | Power on does nothing | Enable TV Settings > General > Network > Expert Settings > **Power On with Mobile**. |
 | Pairing times out / denied | TV Settings > General > External Device Manager > Device Connection Manager > Device List: delete "TV Remote", then `tvremote pair` again. |
-| "No route to host" on Mac | Allow Local Network for the hub's Python (System Settings > Privacy & Security > Local Network). |
+| "No route to host" on Mac | CLI: allow Local Network for Terminal. Hub: install with `deploy/macos/build-app.sh` and turn on **TV Remote Hub** in System Settings > Privacy & Security > Local Network, then `launchctl kickstart -k gui/$(id -u)/com.tvremote.hub`. |
 | Phone can't load the app | Is Tailscale connected on the phone? Check `tailscale serve status` on the hub. |
 | Hub logs | Mac: `~/Library/Logs/tvremote-hub.log`. Linux: `journalctl -u tvremote-hub`. |
 | TV IP changed | Reserve the TV's IP in your router (DHCP reservation), then `tvremote pair --host <new IP>`. |
