@@ -28,6 +28,8 @@ class FakeTV:
         {"appId": "111299001912", "name": "YouTube", "app_type": 2},
     ])
     received: list[dict[str, Any]] = field(default_factory=list)
+    answers_installed_apps: bool = True  # 2024 firmware: False
+    launched: list[str] = field(default_factory=list)
     clients: list[str] = field(default_factory=list)
     ws_port: int = 0
     info_port: int = 0
@@ -96,7 +98,7 @@ class FakeTV:
         params = msg.get("params", {})
         if params.get("DataOfCmd") == "KEY_POWER" and params.get("Cmd") == "Click":
             self.power = "standby" if self.power == "on" else "on"
-        if params.get("event") == "ed.installedApp.get":
+        if params.get("event") == "ed.installedApp.get" and self.answers_installed_apps:
             await ws.send(json.dumps({"event": "ed.installedApp.get", "data": {"data": self.apps}}))
 
     # ------------------------------------------------------------------ http
@@ -104,24 +106,46 @@ class FakeTV:
         tv = self
 
         class Handler(BaseHTTPRequestHandler):
+            def _json(self, code: int, data: Any = None) -> None:
+                body = json.dumps(data).encode() if data is not None else b""
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def _app(self) -> dict[str, Any] | None:
+                app_id = self.path.rstrip("/").rsplit("/", 1)[-1]
+                return next((a for a in tv.apps if a["appId"] == app_id), None)
+
             def do_GET(self) -> None:  # noqa: N802
-                if tv.power == "off" or not self.path.startswith("/api/v2"):
-                    self.send_response(404)
-                    self.end_headers()
-                    return
-                body = json.dumps({
-                    "device": {
-                        "name": "[TV] Fake S90D",
-                        "modelName": "QN42S90DAEXZA",
+                if tv.power == "off":
+                    return self._json(404)
+                if self.path.startswith("/api/v2/applications/"):
+                    app = self._app()
+                    if not app:
+                        return self._json(404, {"messages": "Not found"})
+                    return self._json(200, {"id": app["appId"], "name": app["name"], "running": False,
+                                            "version": "1.0", "visible": False})
+                if self.path.rstrip("/") == "/api/v2":
+                    return self._json(200, {"device": {
+                        "name": "[TV] 42&amp;quot; OLED",
+                        "modelName": "0",
+                        "model": "24_PTM_QD_T09",
                         "wifiMac": tv.mac,
                         "PowerState": tv.power,
                         "TokenAuthSupport": "true",
-                    }
-                }).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(body)
+                    }})
+                self._json(404)
+
+            def do_POST(self) -> None:  # noqa: N802
+                if tv.power == "off" or not self.path.startswith("/api/v2/applications/"):
+                    return self._json(404)
+                app = self._app()
+                if not app:
+                    return self._json(404)
+                tv.launched.append(app["appId"])
+                self._json(200, True)
 
             def log_message(self, *a: object) -> None:
                 pass
