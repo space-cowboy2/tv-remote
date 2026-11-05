@@ -194,3 +194,8 @@ def test_pair_uses_model_when_modelname_is_zero(monkeypatch, tmp_path):
     assert aio.run(cli.run(args)) == 0
     cfg = TVConfig.load(tmp_path / "tv.json")
     assert cfg.model == "24_PTM_QD_T09" and cfg.mac == "28:E6:A9:12:A9:5A"
+
+
+def test_clean_name_unescapes_twice():
+    assert SamsungTV.clean_name("[TV] 42&amp;quot; OLED") == '[TV] 42" OLED'
+    assert SamsungTV.clean_name(None) == "TV"
