@@ -9,6 +9,10 @@ Environment
   TVREMOTE_BIND       host to listen on (default 127.0.0.1; use 0.0.0.0 for the LAN)
   TVREMOTE_PORT       port (default 8080)
   TVREMOTE_WEB_DIR    folder of the web app to serve at / (optional)
+  TVREMOTE_SECURE_COOKIE  1 to always mark the sign-in cookie Secure (set when
+                      served over HTTPS, e.g. behind `tailscale serve`)
+  TVREMOTE_TRUSTED_PROXIES  proxies whose X-Forwarded-* headers are trusted
+                      (default 127.0.0.1, which covers `tailscale serve`)
 """
 
 from __future__ import annotations
@@ -130,17 +134,23 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
     app = FastAPI(title="TV Remote Hub", version=__version__, lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
 
+    # The cookie holds a value derived from the key, never the key itself.
+    # Rotating the key signs every device out.
+    session_value = hmac.new(key.encode(), b"tvremote-session-v1", "sha256").hexdigest()
+    force_secure = os.environ.get("TVREMOTE_SECURE_COOKIE") == "1"
+
     def check(provided: str | None) -> bool:
         return bool(provided) and hmac.compare_digest(provided.encode(), key.encode())
 
-    def credential(request: Request | WebSocket) -> str | None:
+    def authorized(request: Request | WebSocket) -> bool:
         auth = request.headers.get("authorization", "")
-        if auth.lower().startswith("bearer "):
-            return auth[7:].strip()
-        return request.cookies.get(COOKIE)
+        if auth.lower().startswith("bearer ") and check(auth[7:].strip()):
+            return True
+        cookie = request.cookies.get(COOKIE)
+        return bool(cookie) and hmac.compare_digest(cookie.encode(), session_value.encode())
 
     def require_auth(request: Request) -> None:
-        if not check(credential(request)):
+        if not authorized(request):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "sign in required")
 
     @app.exception_handler(TVUnreachable)
@@ -170,8 +180,9 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
         if not check(body.key):
             limiter.fail(client)
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "wrong access key")
-        response.set_cookie(COOKIE, key, httponly=True, samesite="strict",
-                            secure=request.url.scheme == "https", max_age=60 * 60 * 24 * 365)
+        response.set_cookie(COOKIE, session_value, httponly=True, samesite="strict",
+                            secure=force_secure or request.url.scheme == "https",
+                            max_age=60 * 60 * 24 * 365)
         return {"ok": True}
 
     @app.post("/api/logout")
@@ -237,7 +248,7 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
     # -- low-latency channel for button presses: send {"key": "KEY_UP"} or {"text": "..."}
     @app.websocket("/api/ws")
     async def ws(socket: WebSocket) -> None:
-        if not check(credential(socket)) and not check(socket.query_params.get("key")):
+        if not authorized(socket):
             await socket.close(code=4401)
             return
         await socket.accept()
@@ -280,6 +291,7 @@ def main() -> None:
         host=os.environ.get("TVREMOTE_BIND", "127.0.0.1"),
         port=int(os.environ.get("TVREMOTE_PORT", "8080")),
         proxy_headers=True,
+        forwarded_allow_ips=os.environ.get("TVREMOTE_TRUSTED_PROXIES", "127.0.0.1"),
         log_level="info",
     )
 
