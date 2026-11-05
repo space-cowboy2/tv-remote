@@ -2,7 +2,7 @@
 
 Control a Samsung TV (2016+ Tizen, built for the 2024 S90D OLED) from any device.
 
-Status: **Step 1 of 4: TV connection library + CLI.** Hub, web app, and remote access come next.
+Status: **Steps 1–2 of 4 done:** TV connection library + CLI, and the home hub API. Web app and remote access come next.
 
 ## Before you start (on the TV)
 
@@ -25,6 +25,37 @@ tvremote on
 ```
 
 Pairing info (IP, MAC, token) is saved to `~/.config/tvremote/tv.json` with owner-only permissions.
+
+## Run the home hub
+
+The hub is an always-on service (Raspberry Pi, Mac Mini, or any always-on computer on the same network as the TV) that keeps the TV connection and exposes a signed-in API for the remote app.
+
+```bash
+tvremote pair --host <TV IP>      # once
+TVREMOTE_BIND=0.0.0.0 tvremote-hub
+```
+
+On first start it generates an access key and saves it to `~/.config/tvremote/hub.key`. Clients sign in with that key (`POST /api/login`) or send it as `Authorization: Bearer <key>`.
+
+API (all except `/api/health` and `/api/login` need the key):
+
+| Method | Path | Body |
+|---|---|---|
+| GET | `/api/health` | |
+| POST | `/api/login` | `{"key": "..."}` (5 failed tries per 5 min per client) |
+| GET | `/api/status` | |
+| GET | `/api/keys` | |
+| POST | `/api/key` | `{"key": "KEY_VOLUP", "cmd": "Click"}` |
+| POST | `/api/text` | `{"text": "...", "submit": false}` |
+| GET | `/api/apps` | `?refresh=true` to bypass the 10 min cache |
+| POST | `/api/launch` | `{"app_id": "3201907018807"}` |
+| POST | `/api/power` | `{"state": "on"}` or `{"state": "off"}` |
+| WS | `/api/ws` | send `{"key": "KEY_UP", "id": 1}` or `{"text": "..."}` |
+
+### Run the hub on boot
+
+- **Raspberry Pi / Linux:** `deploy/tvremote-hub.service` (systemd). Create a `tvremote` user, install to `/opt/tvremote` with a venv, pair with `TVREMOTE_CONFIG=/var/lib/tvremote/tv.json`, then `sudo cp deploy/tvremote-hub.service /etc/systemd/system/ && sudo systemctl enable --now tvremote-hub`.
+- **Mac:** `deploy/com.tvremote.hub.plist` (launchd). Replace `YOU` with your username, copy to `~/Library/LaunchAgents/`, and run `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tvremote.hub.plist`. Turn off sleep in System Settings > Energy.
 
 ## Develop without a TV
 
