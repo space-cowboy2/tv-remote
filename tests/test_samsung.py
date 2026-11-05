@@ -153,3 +153,44 @@ def test_config_roundtrip_is_private(tmp_path):
     cfg = TVConfig.load(p)
     assert cfg and cfg.token == "secret"
     assert json.loads(p.read_text())["host"] == "1.2.3.4"
+
+
+def test_discovery_blocked_network_gives_hint(monkeypatch):
+    from tvremote import discovery
+
+    def boom(*a, **k):
+        raise OSError(65, "No route to host")
+
+    monkeypatch.setattr(discovery, "_ssdp_blocking", boom)
+    monkeypatch.setattr(discovery, "_mdns_blocking", boom)
+    with pytest.raises(discovery.DiscoveryError, match="Local Network"):
+        discovery._discover_blocking(0.1, None)
+
+
+def test_discovery_falls_back_to_mdns(monkeypatch):
+    from tvremote import discovery
+
+    monkeypatch.setattr(discovery, "_ssdp_blocking", lambda *a: [])
+    monkeypatch.setattr(discovery, "_mdns_blocking", lambda *a: ["192.168.1.9"])
+    assert discovery._discover_blocking(0.1, None) == ["192.168.1.9"]
+
+
+def test_pair_uses_model_when_modelname_is_zero(monkeypatch, tmp_path):
+    import asyncio as aio
+    from tvremote import __main__ as cli
+
+    monkeypatch.setenv("TVREMOTE_CONFIG", str(tmp_path / "tv.json"))
+
+    async def info(self):
+        return {"device": {"modelName": "0", "model": "24_PTM_QD_T09", "wifiMac": "28:E6:A9:12:A9:5A"}}
+
+    async def noop(self):
+        return None
+
+    monkeypatch.setattr(SamsungTV, "info", info)
+    monkeypatch.setattr(SamsungTV, "connect", noop)
+    monkeypatch.setattr(SamsungTV, "close", noop)
+    args = cli.argparse.Namespace(cmd="pair", host="10.0.0.2", name="TV Remote")
+    assert aio.run(cli.run(args)) == 0
+    cfg = TVConfig.load(tmp_path / "tv.json")
+    assert cfg.model == "24_PTM_QD_T09" and cfg.mac == "28:E6:A9:12:A9:5A"
