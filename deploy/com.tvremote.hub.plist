@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- launchd agent for a Mac (e.g. Mac Mini) hub. Replace YOU with your macOS username.
-     Install: cp to ~/Library/LaunchAgents/ then
+     Listens on localhost only; tailscale serve (see README) publishes it over HTTPS
+     to your tailnet. Install: cp to ~/Library/LaunchAgents/ then
      launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tvremote.hub.plist -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -10,7 +11,8 @@
   <array><string>/Users/YOU/tv-remote/.venv/bin/tvremote-hub</string></array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>TVREMOTE_BIND</key><string>0.0.0.0</string>
+    <key>TVREMOTE_BIND</key><string>127.0.0.1</string>
+    <key>TVREMOTE_SECURE_COOKIE</key><string>1</string>
     <key>TVREMOTE_PORT</key><string>8080</string>
     <key>TVREMOTE_WEB_DIR</key><string>/Users/YOU/tv-remote/web</string>
   </dict>

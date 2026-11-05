@@ -119,3 +119,29 @@ def test_security_headers(client):
     r = client.get("/api/health")
     assert r.headers["X-Frame-Options"] == "DENY"
     assert r.headers["Cache-Control"] == "no-store"
+
+
+def test_cookie_does_not_contain_key(client):
+    r = client.post("/api/login", json={"key": KEY})
+    cookie = r.cookies.get("tvremote_session")
+    assert cookie and KEY not in cookie
+
+
+def test_forged_cookie_rejected(client):
+    client.cookies.set("tvremote_session", KEY)
+    assert client.get("/api/status").status_code == 401
+
+
+def test_websocket_accepts_session_cookie(client):
+    client.post("/api/login", json={"key": KEY})
+    with client.websocket_connect("/api/ws") as ws:
+        ws.send_json({"key": "KEY_DOWN", "id": 7})
+        assert ws.receive_json() == {"ok": True, "id": 7}
+
+
+def test_secure_cookie_flag(fake, tmp_path, monkeypatch):
+    monkeypatch.setenv("TVREMOTE_SECURE_COOKIE", "1")
+    tv = SamsungTV("127.0.0.1", port=fake.ws_port, info_port=fake.info_port, secure=False)
+    with TestClient(create_app(tv=tv, access_key=KEY, config_path=tmp_path / "tv.json")) as c:
+        r = c.post("/api/login", json={"key": KEY})
+        assert "secure" in r.headers["set-cookie"].lower()

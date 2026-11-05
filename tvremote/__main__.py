@@ -66,6 +66,17 @@ async def run(args: argparse.Namespace) -> int:
         print(f"Paired. Saved to {path}")
         return 0
 
+    if args.cmd == "hub-key":
+        key_path = default_path().parent / "hub.key"
+        if args.rotate:
+            key_path.unlink(missing_ok=True)
+        from .hub import load_or_create_key
+        load_or_create_key(default_path())
+        print(f"Access key file: {key_path}")
+        if args.rotate:
+            print("New key created. Restart the hub; every device must sign in again.")
+        return 0
+
     cfg = _require_config()
     tv = _tv_from_config(cfg)
     try:
@@ -113,6 +124,8 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("apps", help="list installed apps")
     la = sub.add_parser("launch", help="open an app by id")
     la.add_argument("app_id")
+    hk = sub.add_parser("hub-key", help="show where the hub access key is, or --rotate it")
+    hk.add_argument("--rotate", action="store_true")
     sub.add_parser("on", help="turn the TV on")
     sub.add_parser("off", help="turn the TV off")
     args = p.parse_args(argv)
