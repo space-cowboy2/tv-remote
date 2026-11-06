@@ -70,6 +70,7 @@ class SamsungTV:
         port: int = 8002,
         secure: bool = True,
         info_port: int = 8001,
+        dial_port: int = 8080,
         mac: str | None = None,
         on_token: Callable[[str], None] | None = None,
         pair_timeout: float = 30.0,
@@ -81,6 +82,7 @@ class SamsungTV:
         self.port = port
         self.secure = secure
         self.info_port = info_port
+        self.dial_port = dial_port
         self.mac = mac
         self.on_token = on_token
         self.pair_timeout = pair_timeout
@@ -364,6 +366,37 @@ class SamsungTV:
                 },
             },
         })
+
+    def _dial(self, app_name: str, payload: str | None) -> int:
+        """DIAL (the protocol phone casting uses): GET app state or POST a
+        launch payload to http://TV:8080/ws/apps/<Name>. Samsung requires an
+        Origin header on POST, otherwise it answers 403."""
+        url = f"http://{self.host}:{self.dial_port}/ws/apps/{app_name}"
+        if payload is None:
+            req = urllib.request.Request(url, method="GET")
+        else:
+            req = urllib.request.Request(url, data=payload.encode(), method="POST", headers={
+                "Content-Type": "text/plain; charset=utf-8",
+                "Origin": "https://www.youtube.com",
+            })
+        try:
+            with urllib.request.urlopen(req, timeout=self.request_timeout) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    async def dial_launch(self, app_name: str, payload: str) -> None:
+        """Launch a DIAL-registered app (e.g. "YouTube") with a payload such
+        as "v=<video id>". This is what reliably opens a specific YouTube
+        video on 2024 Tizen; ed.apps.launch deep links are ignored."""
+        try:
+            code = await asyncio.to_thread(self._dial, app_name, payload)
+        except OSError as e:
+            raise TVUnreachable(f"cannot reach TV at {self.host}: {e}") from e
+        if code == 404:
+            raise TVError(f"{app_name} is not available over DIAL on this TV")
+        if not 200 <= code < 300:
+            raise TVError(f"DIAL launch of {app_name} failed ({code})")
 
     async def open_deep_link(self, app_id: str, meta_tag: str) -> None:
         """Ask an app to open specific content (e.g. YouTube "v=<id>"). Sent

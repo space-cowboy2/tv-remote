@@ -29,7 +29,7 @@ The hub can't see the TV screen, so Claude only knows what it sent, not what the
 |---|---|---|
 | Power, volume, mute, inputs, playback, navigation | key presses | Reliable |
 | Open an app | REST launch | Reliable |
-| Play a specific YouTube video | `ed.apps.launch` deep link `v=<id>` (Claude finds the id with web search) | Expected to work; confirm on this TV |
+| Play a specific YouTube video | DIAL `POST :8080/ws/apps/YouTube` with `v=<id>` (Claude finds the id with web search). The TV ignores `ed.apps.launch` deep links. | Reliable (verified 2026-11-06) |
 | Open a specific Twitch channel | Twitch on Tizen ignores deep links, so the hub launches Twitch and runs a blind search key sequence | Depends on the Twitch app layout; calibrate once (below) |
 | Anything needing to read the screen ("is he live?", "pick the 3rd result") | not possible | — |
 

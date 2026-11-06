@@ -164,8 +164,8 @@ class TVActions:
         if not (len(video_id) == 11 and all(c.isalnum() or c in "-_" for c in video_id)):
             return "invalid video id"
         async with self.lock:
-            await self.tv.open_deep_link(YOUTUBE, f"v={video_id}")
-        return f"sent YouTube deep link for {video_id}"
+            await self.tv.dial_launch("YouTube", f"v={video_id}")
+        return f"YouTube accepted video {video_id}"
 
     async def t_open_twitch(self, channel: str) -> str:
         channel = channel.strip().lstrip("@").lower()

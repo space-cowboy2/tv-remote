@@ -43,7 +43,8 @@ def make_client(fake, tmp_path, monkeypatch):  # noqa: F811
     fake.apps.append({"appId": asst.TWITCH, "name": "Twitch", "app_type": 2})
 
     def make(claude=None):
-        tv = SamsungTV("127.0.0.1", port=fake.ws_port, info_port=fake.info_port, secure=False, mac=fake.mac)
+        tv = SamsungTV("127.0.0.1", port=fake.ws_port, info_port=fake.info_port, dial_port=fake.info_port,
+                       secure=False, mac=fake.mac)
         return TestClient(create_app(tv=tv, access_key=KEY, config_path=tmp_path / "tv.json",
                                      assistant_client=claude))
     return make
@@ -100,7 +101,7 @@ def test_youtube_deep_link(make_client, fake):  # noqa: F811
     ])
     with make_client(claude) as c:
         assert c.post("/api/assistant", headers=AUTH, json={"text": "rick roll"}).status_code == 200
-        assert wait_for(lambda: f"{asst.YOUTUBE}#v=dQw4w9WgXcQ" in fake.launched)
+        assert "dial:YouTube?v=dQw4w9WgXcQ" in fake.launched
 
 
 def test_bad_key_is_reported_not_sent(make_client, fake):  # noqa: F811

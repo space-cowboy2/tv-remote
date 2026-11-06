@@ -5,7 +5,7 @@
 ### Ask Claude
 - `POST /api/assistant`: plain-language TV commands run by Claude with tool use over hub actions (power, keys, text, apps, YouTube deep links, key-sequence macros, web search). Key from `ANTHROPIC_API_KEY` or `anthropic.key`. See docs/ASSISTANT.md.
 - Ask tab in the web app (with mic where the browser supports speech) and the iOS app.
-- `SamsungTV.open_deep_link()` sends `ed.apps.launch` with a meta tag over the WebSocket.
+- `SamsungTV.dial_launch()` opens a DIAL app with a payload (YouTube `v=<id>`); 2024 Tizen ignores `ed.apps.launch` deep links, which `open_deep_link()` still sends for other apps.
 
 ## 0.1.0 (2026-11-05)
 

@@ -49,3 +49,11 @@ A single long random access key (generated on first start, stored mode 600) is s
 ## Web app without a framework
 
 Plain HTML/CSS/JS keeps the app small, fast to load over Tailscale, dependency free, and served directly by the hub with no build step. A WebSocket keeps button latency low; HTTP is the fallback.
+
+## YouTube videos: DIAL, not deep links (2026-11-06)
+
+`ed.apps.launch` with `action_type: DEEP_LINK` and `metaTag: v=<id>` is accepted by the 2024
+firmware but does nothing visible. What works is DIAL on port 8080 (`POST /ws/apps/YouTube`,
+body `v=<id>`), the same protocol phone casting uses. Samsung answers 403 without an `Origin`
+header, so the hub sends `Origin: https://www.youtube.com`. Twitch is not DIAL-registered on the
+TV, so it still needs the key-sequence macro (see docs/ASSISTANT.md).
