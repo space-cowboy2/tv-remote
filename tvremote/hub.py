@@ -36,7 +36,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .assistant import Assistant, TVActions, load_api_key, load_macros
+from .assistant import Assistant, Memory, TVActions, load_api_key
 from .config import TVConfig, default_path
 from .keys import KEY_GROUPS, is_valid_key, normalize_key
 from .samsung import SamsungTV, TVError, TVUnreachable
@@ -101,6 +101,10 @@ class PowerBody(BaseModel):
     state: Literal["on", "off"]
 
 
+class YouTubeBody(BaseModel):
+    video: str = Field(min_length=2, max_length=300)  # URL, video id, or title
+
+
 class AssistantBody(BaseModel):
     text: str = Field(min_length=1, max_length=500)
 
@@ -131,6 +135,7 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
     tv_lock = asyncio.Lock()
     assistant_limiter = LoginLimiter(limit=20, window=60)
     assistant: Assistant | None = None
+    memory = Memory(config_path.parent)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -244,6 +249,15 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
             await tv.launch_app(body.app_id)
         return {"ok": True}
 
+    @app.post("/api/youtube", dependencies=auth)
+    async def play_youtube(body: YouTubeBody) -> dict[str, Any]:
+        """Play a video natively: open YouTube, search the title, pick the first result (~25 s)."""
+        actions = TVActions(tv, tv_lock, memory, cached_apps)
+        result = await actions.t_play_youtube(body.video)
+        if "could not" in result:
+            raise HTTPException(502, result)
+        return {"ok": True, "result": result}
+
     @app.post("/api/power", dependencies=auth)
     async def power(body: PowerBody) -> dict[str, Any]:
         if body.state == "on":
@@ -264,8 +278,7 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
             api_key = load_api_key(config_path.parent)
             if not api_key and assistant_client is None:
                 raise HTTPException(503, "Claude is not set up on the hub. Add an Anthropic API key (see docs/ASSISTANT.md).")
-            macros = load_macros(config_path.parent)
-            assistant = Assistant(lambda: TVActions(tv, tv_lock, macros, cached_apps),
+            assistant = Assistant(lambda: TVActions(tv, tv_lock, memory, cached_apps),
                                   api_key=api_key or "", client=assistant_client)
         return assistant
 

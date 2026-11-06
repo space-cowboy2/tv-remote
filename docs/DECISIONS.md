@@ -50,10 +50,13 @@ A single long random access key (generated on first start, stored mode 600) is s
 
 Plain HTML/CSS/JS keeps the app small, fast to load over Tailscale, dependency free, and served directly by the hub with no build step. A WebSocket keeps button latency low; HTTP is the fallback.
 
-## YouTube videos: DIAL, not deep links (2026-11-06)
+## Playing a specific YouTube video: native search, not casting (2026-11-06)
 
-`ed.apps.launch` with `action_type: DEEP_LINK` and `metaTag: v=<id>` is accepted by the 2024
-firmware but does nothing visible. What works is DIAL on port 8080 (`POST /ws/apps/YouTube`,
-body `v=<id>`), the same protocol phone casting uses. Samsung answers 403 without an `Origin`
-header, so the hub sends `Origin: https://www.youtube.com`. Twitch is not DIAL-registered on the
-TV, so it still needs the key-sequence macro (see docs/ASSISTANT.md).
+Tested on the 2024 S90D: `ed.apps.launch` (DEEP_LINK and NATIVE_LAUNCH, app id `111299001912`
+or package `9Ur5IzDKqV.TizenYouTube`), REST `POST /api/v2/applications/<id>` with a JSON body,
+and DIAL `POST :8080/ws/apps/YouTube` (`v=<id>`, with and without `pairingCode`; needs an
+`Origin` header or it 403s) all start YouTube and drop the video. The YouTube Lounge API
+(what the phone app uses) does play it, but the TV wraps casts in Multi View (split screen, sound on
+the other pane) and Danny ruled casting out. So `play_youtube` drives the app's own search with
+remote keys (`youtube_search` macro, verified at 12:33 CST), resolving links to titles via oEmbed.
+Consequence: no reliable auto ad-skip, since that needs screen feedback (the Lounge session has it).

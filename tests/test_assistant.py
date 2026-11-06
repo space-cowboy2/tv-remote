@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace as NS
 
 import pytest
@@ -23,8 +24,8 @@ class FakeClaude:
         return self.script.pop(0)
 
 
-def tool(name, **inp):
-    return NS(type="tool_use", id=f"tu_{name}", name=name, input=inp)
+def tool(name_, **inp):
+    return NS(type="tool_use", id=f"tu_{name_}", name=name_, input=inp)
 
 
 def text(t):
@@ -38,13 +39,16 @@ def resp(*content, stop="end_turn"):
 @pytest.fixture
 def make_client(fake, tmp_path, monkeypatch):  # noqa: F811
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setattr(asst, "DEFAULT_MACROS", {"twitch_channel": {"steps": [
-        {"launch": asst.TWITCH}, {"key": "KEY_LEFT"}, {"text": "{value}", "submit": True}, {"key": "KEY_ENTER"}]}})
+    # Same steps as the real macros, without the waits (tests run in seconds).
+    fast = {name: {"description": m.get("description", ""),
+                   "steps": [st for st in m["steps"] if "wait" not in st]}
+            for name, m in asst.DEFAULT_MACROS.items()}
+    monkeypatch.setattr(asst, "DEFAULT_MACROS", fast)
+    monkeypatch.setattr(asst, "youtube_title", lambda vid: f"Title for {vid} | Live Set (4K) | Channel")
     fake.apps.append({"appId": asst.TWITCH, "name": "Twitch", "app_type": 2})
 
     def make(claude=None):
-        tv = SamsungTV("127.0.0.1", port=fake.ws_port, info_port=fake.info_port, dial_port=fake.info_port,
-                       secure=False, mac=fake.mac)
+        tv = SamsungTV("127.0.0.1", port=fake.ws_port, info_port=fake.info_port, secure=False, mac=fake.mac)
         return TestClient(create_app(tv=tv, access_key=KEY, config_path=tmp_path / "tv.json",
                                      assistant_client=claude))
     return make
@@ -94,14 +98,65 @@ def test_twitch_macro(make_client, fake):  # noqa: F811
         assert "not visually confirmed" in r.json()["actions"][0]
 
 
-def test_youtube_deep_link(make_client, fake):  # noqa: F811
+def typed(fake):  # noqa: F811
+    import base64
+    return [base64.b64decode(m["params"]["Cmd"]).decode() for m in fake.received
+            if m.get("params", {}).get("TypeOfRemote") == "SendInputString"]
+
+
+def test_youtube_plays_by_searching_natively(make_client, fake):  # noqa: F811
     claude = FakeClaude([
-        resp(tool("play_youtube", video_id="dQw4w9WgXcQ"), stop="tool_use"),
+        resp(tool("play_youtube", video="https://youtu.be/dQw4w9WgXcQ?si=x"), stop="tool_use"),
         resp(text("Playing it on YouTube.")),
     ])
     with make_client(claude) as c:
-        assert c.post("/api/assistant", headers=AUTH, json={"text": "rick roll"}).status_code == 200
-        assert "dial:YouTube?v=dQw4w9WgXcQ" in fake.launched
+        r = c.post("/api/assistant", headers=AUTH, json={"text": "play this"})
+        assert r.status_code == 200
+        assert asst.YOUTUBE in fake.launched  # launched over REST, no deep link
+        assert wait_for(lambda: fake.keys[-1:] == ["KEY_ENTER"] and len(fake.keys) >= 5)
+        assert fake.keys == ["KEY_HOME", "KEY_LEFT", "KEY_UP", "KEY_ENTER", "KEY_RIGHT", "KEY_ENTER"]
+        assert typed(fake) == ["Title for dQw4w9WgXcQ Live Set 4K"]  # title trimmed for the TV search box
+    assert "searched YouTube" in claude.requests[1]["messages"][-1]["content"][0]["content"]
+
+
+def test_youtube_endpoint_takes_a_title(make_client, fake):  # noqa: F811
+    with make_client(FakeClaude([])) as c:
+        r = c.post("/api/youtube", headers=AUTH, json={"video": "lofi hip hop radio"})
+        assert r.status_code == 200
+        assert typed(fake) == ["lofi hip hop radio"]
+
+
+def test_memory_persists(make_client, tmp_path):
+    claude = FakeClaude([
+        resp(tool("remember", note="Owner likes volume 12 at night."),
+             tool("save_macro", name="netflix_search", description="Search in Netflix",
+                  steps=[{"launch": "3201907018807"}, {"wait": 5}, {"key": "up", "repeat": 2},
+                         {"text": "{value}", "submit": True}]), stop="tool_use"),
+        resp(text("Noted.")),
+        resp(text("ok")),
+    ])
+    with make_client(claude) as c:
+        c.post("/api/assistant", headers=AUTH, json={"text": "remember stuff"})
+        c.post("/api/assistant", headers=AUTH, json={"text": "hi"})
+    assert "volume 12" in (tmp_path / "notes.md").read_text()
+    saved = json.loads((tmp_path / "macros.json").read_text())
+    assert saved["netflix_search"]["steps"][2] == {"key": "KEY_UP", "repeat": 2}
+    assert "netflix_search" not in saved or "youtube_search" not in saved  # defaults aren't duplicated
+    # the next request sees the note in the system prompt, and a fresh Memory reloads both
+    assert "volume 12" in claude.requests[2]["system"]
+    mem = asst.Memory(tmp_path)
+    assert "netflix_search" in mem.macros and "youtube_search" in mem.macros
+
+
+@pytest.mark.parametrize("text,vid", [
+    ("dQw4w9WgXcQ", "dQw4w9WgXcQ"),
+    ("https://www.youtube.com/watch?v=DPBt5qXBGhk", "DPBt5qXBGhk"),
+    ("https://youtu.be/DPBt5qXBGhk?si=abc", "DPBt5qXBGhk"),
+    ("https://youtube.com/shorts/DPBt5qXBGhk", "DPBt5qXBGhk"),
+    ("play something", None),
+])
+def test_extract_video_id(text, vid):
+    assert asst.extract_video_id(text) == vid
 
 
 def test_bad_key_is_reported_not_sent(make_client, fake):  # noqa: F811

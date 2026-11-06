@@ -4,10 +4,11 @@ handled by Claude with tool use over the hub's own TV actions.
 The hub cannot see the screen. Every tool reports what it sent, never what the
 TV shows, and Claude is told to say so when a step can't be confirmed.
 
-Configuration
-  ANTHROPIC_API_KEY or ~/.config/tvremote/anthropic.key (mode 600)
+Configuration (all next to tv.json, normally ~/.config/tvremote/)
+  ANTHROPIC_API_KEY or anthropic.key (mode 600)
   TVREMOTE_CLAUDE_MODEL   model id (default claude-opus-5-5)
-  ~/.config/tvremote/macros.json   optional key sequences, see docs/ASSISTANT.md
+  macros.json   key sequences Claude can run and save, see docs/ASSISTANT.md
+  notes.md      what Claude has learned about this TV; loaded into every request
 """
 
 from __future__ import annotations
@@ -16,7 +17,10 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
+import urllib.parse
+import urllib.request
 from collections import deque
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -31,12 +35,30 @@ DEFAULT_MODEL = "claude-opus-5-5"
 YOUTUBE = "111299001912"
 TWITCH = "3202203026841"
 
-# Key sequences for apps that ignore deep links. "{value}" is replaced by the
-# argument (e.g. the channel name). Override or add in macros.json.
+VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+# Key sequences for things the TV's APIs can't do directly. "{value}" is
+# replaced by the argument. Claude can add or fix these with save_macro; they
+# persist in macros.json. Timings were verified on Danny's TV 2026-11-06.
 DEFAULT_MACROS: dict[str, dict[str, Any]] = {
-    "twitch_channel": {
-        "description": "Open a Twitch channel by searching for it in the Twitch app.",
+    "youtube_search": {
+        "description": "Play a YouTube video natively: open YouTube, search for the title, pick the first result. "
+                       "The TV ignores YouTube deep links, so this is THE way to play a specific video.",
         "steps": [
+            {"key": "KEY_HOME"}, {"wait": 3},
+            {"launch": YOUTUBE}, {"wait": 8},
+            {"key": "KEY_LEFT"}, {"wait": 1.5},
+            {"key": "KEY_UP"}, {"wait": 1},
+            {"key": "KEY_ENTER"}, {"wait": 2.5},
+            {"text": "{value}", "submit": True}, {"wait": 4},
+            {"key": "KEY_RIGHT"}, {"wait": 1},
+            {"key": "KEY_ENTER"},
+        ],
+    },
+    "twitch_channel": {
+        "description": "Open a Twitch channel by searching for it in the Twitch app (not yet verified on this TV).",
+        "steps": [
+            {"key": "KEY_HOME"}, {"wait": 3},
             {"launch": TWITCH}, {"wait": 7},
             {"key": "KEY_LEFT"}, {"wait": 0.8},
             {"key": "KEY_UP", "repeat": 6}, {"wait": 0.5},
@@ -47,6 +69,15 @@ DEFAULT_MACROS: dict[str, dict[str, Any]] = {
         ],
     },
 }
+
+DEFAULT_NOTES = """\
+- Samsung 42" 2024 OLED (Tizen). The hub cannot see the screen.
+- YouTube: deep links (ed.apps.launch, DIAL payloads) start the app but drop the video. Use the
+  youtube_search macro (play_youtube does this). Verified 2026-11-06.
+- The owner does NOT want casting (YouTube Lounge / Smart View): it triggers Samsung Multi View
+  (split screen, no sound). Never cast. KEY_MULTI_VIEW toggles Multi View if it ever appears.
+- Twitch: deep links are ignored; twitch_channel macro is a best guess, not yet calibrated.
+"""
 
 SYSTEM = """You control a Samsung Tizen smart TV (2024, 42" OLED) for its owner through \
 the tools below. The owner types or speaks short requests from a phone remote.
@@ -82,8 +113,26 @@ TOOLS: list[dict[str, Any]] = [
           {"state": {"type": "string", "enum": ["on", "off"]}}),
     _tool("list_apps", "Installed apps with their ids.", {}),
     _tool("launch_app", "Open an installed app by id (from list_apps).", {"app_id": {"type": "string"}}),
-    _tool("play_youtube", "Open the YouTube app straight to a video by its 11-character video id.",
-          {"video_id": {"type": "string"}}),
+    _tool("play_youtube", "Play a YouTube video in the TV's YouTube app by searching for it there "
+          "(the TV ignores direct links). Pass a youtube.com/youtu.be URL, an 11-character video id, "
+          "or the title / search words. Takes about 25 s.",
+          {"video": {"type": "string"}}),
+    _tool("run_macro", "Run a saved key sequence by name (see the notes and list_macros). value replaces {value}.",
+          {"name": {"type": "string"}, "value": {"type": "string"}}),
+    _tool("list_macros", "Saved key sequences with their steps.", {}),
+    _tool("save_macro", "Create or replace a key sequence so it is remembered. Steps: {\"key\": \"KEY_X\", "
+          "\"repeat\": n} | {\"wait\": seconds} | {\"launch\": app_id} | {\"text\": \"...{value}...\", "
+          "\"submit\": bool}.",
+          {"name": {"type": "string", "pattern": "^[a-z0-9_]{2,40}$"},
+           "description": {"type": "string"},
+           "steps": {"type": "array", "items": {"type": "object", "properties": {
+               "key": {"type": "string"}, "repeat": {"type": "integer"}, "wait": {"type": "number"},
+               "launch": {"type": "string"}, "text": {"type": "string"}, "submit": {"type": "boolean"}},
+               "required": [], "additionalProperties": False}}}),
+    _tool("remember", "Append a lasting fact about this TV or the owner's preferences to the notes "
+          "(one short line).", {"note": {"type": "string"}}),
+    _tool("skip_ad", "Press OK once, which skips a YouTube ad when its Skip button is showing. Warning: if "
+          "no ad is on screen this pauses the video. Only use when the owner asks.", {}),
     _tool("open_twitch", "Open a Twitch channel (streamer login name, e.g. 'ohnepixel'). "
           "Twitch on this TV ignores direct links, so this runs a blind search key sequence; "
           "the result can't be confirmed.", {"channel": {"type": "string"}}),
@@ -112,24 +161,95 @@ def load_api_key(config_dir: Path) -> str | None:
     return None
 
 
-def load_macros(config_dir: Path) -> dict[str, dict[str, Any]]:
-    macros = dict(DEFAULT_MACROS)
-    p = config_dir / "macros.json"
-    if p.exists():
+class Memory:
+    """Macros (macros.json) and notes (notes.md) in the config dir. Built-in
+    defaults are merged under what the files hold, so files only need to
+    contain what Claude changed."""
+
+    def __init__(self, config_dir: Path) -> None:
+        self.dir = config_dir
+        self.macros: dict[str, dict[str, Any]] = {}
+        self.notes = ""
+        self.reload()
+
+    def reload(self) -> None:
+        self.macros = {k: dict(v) for k, v in DEFAULT_MACROS.items()}
+        p = self.dir / "macros.json"
+        if p.exists():
+            try:
+                self.macros.update(json.loads(p.read_text()))
+            except (ValueError, OSError) as e:
+                log.warning("ignoring %s: %s", p, e)
+        n = self.dir / "notes.md"
         try:
-            macros.update(json.loads(p.read_text()))
-        except (ValueError, OSError) as e:
-            log.warning("ignoring %s: %s", p, e)
-    return macros
+            self.notes = n.read_text() if n.exists() else DEFAULT_NOTES
+        except OSError:
+            self.notes = DEFAULT_NOTES
+
+    def save_macro(self, name: str, description: str, steps: list[dict[str, Any]]) -> None:
+        self.macros[name] = {"description": description, "steps": steps}
+        p = self.dir / "macros.json"
+        existing: dict[str, Any] = {}
+        if p.exists():
+            try:
+                existing = json.loads(p.read_text())
+            except (ValueError, OSError):
+                pass
+        existing[name] = self.macros[name]
+        self._write(p, json.dumps(existing, indent=2) + "\n")
+
+    def remember(self, note: str) -> None:
+        note = " ".join(note.split())[:300]
+        if not note:
+            return
+        self.notes = (self.notes.rstrip("\n") + f"\n- {note}\n") if self.notes.strip() else f"- {note}\n"
+        self._write(self.dir / "notes.md", self.notes)
+
+    def _write(self, p: Path, content: str) -> None:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        tmp.write_text(content)
+        os.replace(tmp, p)
+
+
+def youtube_title(video_id: str) -> str | None:
+    """Video title via YouTube's public oEmbed endpoint (no API key)."""
+    url = "https://www.youtube.com/oembed?" + urllib.parse.urlencode(
+        {"url": f"https://www.youtube.com/watch?v={video_id}", "format": "json"})
+    try:
+        with urllib.request.urlopen(url, timeout=8) as r:
+            return json.loads(r.read().decode()).get("title")
+    except (OSError, ValueError):
+        return None
+
+
+def extract_video_id(text: str) -> str | None:
+    text = text.strip()
+    if VIDEO_ID_RE.match(text):
+        return text
+    m = re.search(r"(?:v=|youtu\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])", text)
+    return m.group(1) if m else None
+
+
+def search_words(title: str, limit: int = 6) -> str:
+    """Trim a video title to something the TV search box handles well."""
+    words = [w for w in re.sub(r"[^\w\s'&-]", " ", title).split() if w]
+    return " ".join(words[:limit]) or title[:60]
 
 
 class TVActions:
     """The tool implementations. Each returns a short string for Claude."""
 
-    def __init__(self, tv: SamsungTV, lock: asyncio.Lock, macros: dict[str, dict[str, Any]],
-                 list_apps: Callable[[], Awaitable[list[dict[str, Any]]]]) -> None:
-        self.tv, self.lock, self.macros, self._list_apps = tv, lock, macros, list_apps
+    def __init__(self, tv: SamsungTV, lock: asyncio.Lock, memory: Memory,
+                 list_apps: Callable[[], Awaitable[list[dict[str, Any]]]],
+                 title_lookup: Callable[[str], str | None] | None = None) -> None:
+        self.tv, self.lock, self.memory, self._list_apps = tv, lock, memory, list_apps
+        self.title_lookup = title_lookup or (lambda vid: youtube_title(vid))
         self.log: list[str] = []
+
+    @property
+    def macros(self) -> dict[str, dict[str, Any]]:
+        return self.memory.macros
 
     async def run(self, name: str, args: dict[str, Any]) -> str:
         fn = getattr(self, f"t_{name}", None)
@@ -160,12 +280,57 @@ class TVActions:
             await self.tv.launch_app(app_id)
         return f"launched {KNOWN_APPS.get(app_id, app_id)}"
 
-    async def t_play_youtube(self, video_id: str) -> str:
-        if not (len(video_id) == 11 and all(c.isalnum() or c in "-_" for c in video_id)):
-            return "invalid video id"
+    async def t_play_youtube(self, video: str) -> str:
+        video_id = extract_video_id(video)
+        query = video.strip()
+        if video_id:
+            title = await asyncio.to_thread(self.title_lookup, video_id)
+            if not title:
+                return "could not look up that video's title, so I can't search for it on the TV"
+            query = search_words(title)
+        else:
+            query = search_words(query, limit=8)
+        await self.run_macro("youtube_search", query)
+        return f"searched YouTube on the TV for '{query}' and selected the first result (not visually confirmed)"
+
+    async def t_run_macro(self, name: str, value: str = "") -> str:
+        return await self.run_macro(name, value)
+
+    async def t_list_macros(self) -> str:
+        return json.dumps(self.macros)
+
+    async def t_save_macro(self, name: str, description: str, steps: list[dict[str, Any]]) -> str:
+        if not re.match(r"^[a-z0-9_]{2,40}$", name):
+            return "bad macro name"
+        clean: list[dict[str, Any]] = []
+        for st in steps:
+            st = {k: v for k, v in st.items() if v is not None}
+            if "key" in st:
+                k = normalize_key(str(st["key"]))
+                if k not in ALL_KEYS and k != "KEY_MULTI_VIEW":
+                    return f"unknown key {k}"
+                clean.append({"key": k, **({"repeat": int(st["repeat"])} if st.get("repeat") else {})})
+            elif "wait" in st:
+                clean.append({"wait": max(0, min(float(st["wait"]), 15))})
+            elif "launch" in st:
+                clean.append({"launch": str(st["launch"])})
+            elif "text" in st:
+                clean.append({"text": str(st["text"])[:200], "submit": bool(st.get("submit", True))})
+            else:
+                return f"step {st} has none of key/wait/launch/text"
+        if not clean:
+            return "no steps"
+        self.memory.save_macro(name, description[:200], clean)
+        return f"saved macro {name} ({len(clean)} steps)"
+
+    async def t_remember(self, note: str) -> str:
+        self.memory.remember(note)
+        return "noted"
+
+    async def t_skip_ad(self) -> str:
         async with self.lock:
-            await self.tv.dial_launch("YouTube", f"v={video_id}")
-        return f"YouTube accepted video {video_id}"
+            await self.tv.send_key("KEY_ENTER")
+        return "pressed OK (skips the ad if its button was showing; otherwise toggled pause)"
 
     async def t_open_twitch(self, channel: str) -> str:
         channel = channel.strip().lstrip("@").lower()
@@ -176,7 +341,7 @@ class TVActions:
     async def run_macro(self, name: str, value: str = "") -> str:
         macro = self.macros.get(name)
         if not macro:
-            return f"no macro {name}"
+            return f"no macro {name}; known: {', '.join(self.macros)}"
         async with self.lock:
             for step in macro["steps"]:
                 if "wait" in step:
@@ -246,13 +411,14 @@ class Assistant:
     async def handle(self, text: str) -> dict[str, Any]:
         async with self.lock:
             actions = self.actions_factory()
+            system = SYSTEM + (actions.memory.notes or "(none yet)")
             messages = self._recent() + [{"role": "user", "content": text}]
             reply = ""
             for _ in range(self.MAX_TURNS):
                 resp = await self.client.beta.messages.create(
                     model=self.model,
                     max_tokens=4096,
-                    system=SYSTEM,
+                    system=system,
                     tools=[*TOOLS, WEB_SEARCH],
                     messages=messages,
                     output_config={"effort": "low"},

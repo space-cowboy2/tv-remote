@@ -38,6 +38,7 @@ Wrong keys: `401`. More than 5 failed logins from one client in 5 minutes: `429`
 | POST | `/api/power` | `{"state": "on" \| "off"}` | `{"ok": true, "power": "on"}` |
 | GET | `/api/assistant` | | `{"enabled": bool}`: whether an Anthropic API key is set on the hub |
 | POST | `/api/assistant` | `{"text": "open ohnepixel on Twitch"}` (≤ 500 chars) | `{"reply": "...", "actions": ["open_twitch: ..."]}`. 503 if Claude isn't set up, 429 over 20/min. See [ASSISTANT.md](ASSISTANT.md). |
+| POST | `/api/youtube` | `{"video": "<URL, video id or title>"}` | `{"ok": true, "result": "..."}`. Opens YouTube and searches natively (~25 s). |
 | WS | `/api/ws` | see below | |
 
 ## WebSocket `/api/ws`

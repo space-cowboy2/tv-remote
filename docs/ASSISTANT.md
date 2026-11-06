@@ -29,32 +29,35 @@ The hub can't see the TV screen, so Claude only knows what it sent, not what the
 |---|---|---|
 | Power, volume, mute, inputs, playback, navigation | key presses | Reliable |
 | Open an app | REST launch | Reliable |
-| Play a specific YouTube video | DIAL `POST :8080/ws/apps/YouTube` with `v=<id>` (Claude finds the id with web search). The TV ignores `ed.apps.launch` deep links. | Reliable (verified 2026-11-06) |
-| Open a specific Twitch channel | Twitch on Tizen ignores deep links, so the hub launches Twitch and runs a blind search key sequence | Depends on the Twitch app layout; calibrate once (below) |
+| Play a specific YouTube video (link, id or title) | `youtube_search` macro: Home, open YouTube, Left, Up, OK, type the title, submit, Right, OK. A link/id is turned into a title via YouTube's oEmbed endpoint. ~25 s. | Verified 2026-11-06 |
+| Open a specific Twitch channel | `twitch_channel` macro (same idea) | Not yet calibrated; tell Claude what the screen showed and it will fix the steps |
+| Skip a YouTube ad | `skip_ad` presses OK, which hits YouTube's Skip button when it's showing | Only on request: with no ad on screen, OK pauses the video |
 | Anything needing to read the screen ("is he live?", "pick the 3rd result") | not possible | — |
 
-## Calibrating key sequences (macros)
+Dead ends on this TV (don't retry): YouTube deep links via `ed.apps.launch` (DEEP_LINK and
+NATIVE_LAUNCH, app id or Tizen package id), REST launch with a JSON body, and DIAL
+`POST /ws/apps/YouTube` payloads all start YouTube but drop the video. Casting through the
+YouTube Lounge API does play the video, but the TV opens Samsung Multi View (split screen, no
+sound) for casts, and Danny doesn't want casting. Ad skipping with screen feedback would need that
+same Lounge connection, so it isn't offered.
 
-Built-in macro `twitch_channel` (in `tvremote/assistant.py`): launch Twitch, wait 7 s,
-LEFT (open side menu), UP ×6 (to Search), OK, type the channel + submit, wait 3 s, DOWN, OK.
-If the Twitch app on the TV needs different presses, override it without changing code in
-`~/.config/tvremote/macros.json` and restart the hub:
+## Memory
 
-```json
-{
-  "twitch_channel": {
-    "steps": [
-      {"launch": "3202203026841"}, {"wait": 7},
-      {"key": "KEY_LEFT"}, {"key": "KEY_UP", "repeat": 6}, {"key": "KEY_ENTER"}, {"wait": 1.5},
-      {"text": "{value}", "submit": true}, {"wait": 3},
-      {"key": "KEY_DOWN"}, {"key": "KEY_ENTER"}
-    ]
-  }
-}
-```
+Claude keeps two files next to `tv.json` and reads them on every request:
 
-Step types: `launch` (app id), `wait` (seconds, ≤ 15), `key` (+ optional `repeat`),
-`text` (`{value}` is replaced by the channel; `submit` presses the keyboard's search).
+- `notes.md`: lasting facts about the TV and preferences. Claude appends with its `remember` tool
+  ("remember that I want captions on"); you can edit it by hand.
+- `macros.json`: key sequences Claude can run (`run_macro`) and create or fix (`save_macro`).
+  Built-in macros (`youtube_search`, `twitch_channel`) live in `tvremote/assistant.py`; the file
+  only holds what Claude changed, and overrides built-ins by name.
+
+Step types: `{"key": "KEY_X", "repeat": n}`, `{"wait": seconds}` (≤ 15), `{"launch": app_id}`,
+`{"text": "...{value}...", "submit": true}`. `{value}` is the macro argument.
+
+Calibrating: ask for the thing, watch the TV, then tell Claude what happened ("it stopped on the
+search box", "it needs one more Up"). It adjusts the macro and saves it.
+
+`POST /api/youtube {"video": "<url | id | title>"}` runs the YouTube routine without Claude.
 
 ## Cost and limits
 

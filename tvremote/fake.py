@@ -142,12 +142,6 @@ class FakeTV:
                 self._json(404)
 
             def do_POST(self) -> None:  # noqa: N802
-                if self.path.startswith("/ws/apps/"):  # DIAL
-                    if not self.headers.get("Origin"):
-                        return self._json(403)
-                    body = self.rfile.read(int(self.headers.get("Content-Length") or 0)).decode()
-                    tv.launched.append(f"dial:{self.path.rsplit('/', 1)[-1]}?{body}")
-                    return self._json(201)
                 if tv.power == "off" or not self.path.startswith("/api/v2/applications/"):
                     return self._json(404)
                 app = self._app()
