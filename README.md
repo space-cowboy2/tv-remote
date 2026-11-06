@@ -36,6 +36,7 @@ Full walkthrough, including TV settings: **[docs/SETUP.md](docs/SETUP.md)**.
 | [docs/SETUP.md](docs/SETUP.md) | Current deployment, step-by-step install on the Mac Mini (or a Raspberry Pi), Tailscale, adding devices |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, how a button press flows, security model, tests |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why it's built this way, and the gotchas: 2024 firmware app list, macOS Local Network and the `.app` wrapper, Tailscale address overlap |
+| [docs/ASSISTANT.md](docs/ASSISTANT.md) | Ask Claude: plain-language commands, API key setup, what works (and what does not) for Twitch/YouTube, calibrating key sequences |
 | [docs/API.md](docs/API.md) | Hub HTTP and WebSocket API, with curl examples |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Restart, update, rotate the key, re-pair, uninstall, troubleshooting |
 | [ios/README.md](ios/README.md) | Build and install the native iPhone app |

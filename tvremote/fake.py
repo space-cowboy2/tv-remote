@@ -98,6 +98,9 @@ class FakeTV:
         params = msg.get("params", {})
         if params.get("DataOfCmd") == "KEY_POWER" and params.get("Cmd") == "Click":
             self.power = "standby" if self.power == "on" else "on"
+        if params.get("event") == "ed.apps.launch":
+            d = params.get("data") or {}
+            self.launched.append(f'{d.get("appId")}#{d.get("metaTag", "")}')
         if params.get("event") == "ed.installedApp.get" and self.answers_installed_apps:
             await ws.send(json.dumps({"event": "ed.installedApp.get", "data": {"data": self.apps}}))
 

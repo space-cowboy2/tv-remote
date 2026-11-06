@@ -36,6 +36,8 @@ Wrong keys: `401`. More than 5 failed logins from one client in 5 minutes: `429`
 | GET | `/api/apps` | `?refresh=true` skips the 10-minute cache | `[{"id", "name", "type", "running"?}]` sorted by name |
 | POST | `/api/launch` | `{"app_id": "3201907018807"}` | `{"ok": true}` |
 | POST | `/api/power` | `{"state": "on" \| "off"}` | `{"ok": true, "power": "on"}` |
+| GET | `/api/assistant` | | `{"enabled": bool}`: whether an Anthropic API key is set on the hub |
+| POST | `/api/assistant` | `{"text": "open ohnepixel on Twitch"}` (≤ 500 chars) | `{"reply": "...", "actions": ["open_twitch: ..."]}`. 503 if Claude isn't set up, 429 over 20/min. See [ASSISTANT.md](ASSISTANT.md). |
 | WS | `/api/ws` | see below | |
 
 ## WebSocket `/api/ws`

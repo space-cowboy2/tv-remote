@@ -34,6 +34,8 @@ struct RootView: View {
                 TabView {
                     RemoteView()
                         .tabItem { Label("Remote", systemImage: "appletvremote.gen4") }
+                    AskView()
+                        .tabItem { Label("Ask", systemImage: "sparkles") }
                     AppsView()
                         .tabItem { Label("Apps", systemImage: "square.grid.2x2.fill") }
                     KeyboardView()

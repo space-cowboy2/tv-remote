@@ -66,6 +66,13 @@ for (const [label, opts] of [["phone", devices["iPhone 13"]], ["desktop", { view
       await page.click("#text-form button[type=submit]");
       await page.locator("#toast", { hasText: "Sent" }).waitFor();
     });
+    await step(`${label}/${scheme}: ask tab explains when Claude is not set up`, async () => {
+      await page.click('[data-tab="ask"]');
+      await page.fill("#ask", "open twitch");
+      await page.click("#ask-send");
+      await page.locator("#ask-log li.error", { hasText: "not set up" }).waitFor();
+    });
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/${label}-${scheme}-ask.png` });
     await step(`${label}/${scheme}: power off then on`, async () => {
       await page.click('[data-tab="remote"]');
       await page.click("#power");

@@ -169,6 +169,14 @@ final class HubClient: @unchecked Sendable {
         try await call("power", method: "POST", body: ["state": on ? "on" : "off"], timeout: 30)
     }
 
+    /// Plain-language request handled by Claude on the hub. Can take a while
+    /// (web search, app launch waits), hence the long timeout.
+    func ask(_ text: String) async throws -> String {
+        let data = try await call("assistant", method: "POST", body: ["text": text], timeout: 90)
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return obj?["reply"] as? String ?? "Done."
+    }
+
     /// WebSocket for low-latency key presses. Auth via the same bearer header.
     func makeSocket() -> URLSessionWebSocketTask {
         var c = URLComponents(url: url("ws"), resolvingAgainstBaseURL: false)!

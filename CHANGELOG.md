@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Ask Claude
+- `POST /api/assistant`: plain-language TV commands run by Claude with tool use over hub actions (power, keys, text, apps, YouTube deep links, key-sequence macros, web search). Key from `ANTHROPIC_API_KEY` or `anthropic.key`. See docs/ASSISTANT.md.
+- Ask tab in the web app (with mic where the browser supports speech) and the iOS app.
+- `SamsungTV.open_deep_link()` sends `ed.apps.launch` with a meta tag over the WebSocket.
+
 ## 0.1.0 (2026-11-05)
 
 First release, built and verified against a 42" 2024 Samsung OLED with a Mac Mini hub.

@@ -170,6 +170,23 @@ final class RemoteModel {
         }
     }
 
+    // MARK: ask claude
+
+    /// Returns Claude's reply, or the error text.
+    func ask(_ text: String) async -> (reply: String, ok: Bool) {
+        guard let client else { return ("Not signed in", false) }
+        do {
+            let reply = try await client.ask(text)
+            Task { await refreshStatus() }
+            return (reply, true)
+        } catch HubError.unauthorized {
+            fail(HubError.unauthorized)
+            return ("Not signed in", false)
+        } catch {
+            return (error.localizedDescription, false)
+        }
+    }
+
     // MARK: websocket
 
     private func openSocket() {

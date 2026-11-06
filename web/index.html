@@ -97,6 +97,22 @@
       </details>
     </section>
 
+    <section id="tab-ask" class="tab" role="tabpanel" hidden>
+      <h2>Ask Claude</h2>
+      <p class="muted">Say what you want on the TV, like &ldquo;open ohnepixel on Twitch&rdquo; or &ldquo;volume down 5&rdquo;.</p>
+      <form id="ask-form" class="stack">
+        <label for="ask" class="sr-only">Request</label>
+        <div class="ask-row">
+          <input id="ask" autocomplete="off" maxlength="500" enterkeyhint="send" placeholder="What should the TV do?">
+          <button type="button" id="ask-mic" class="icon-btn" aria-label="Speak" hidden>
+            <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </button>
+        </div>
+        <button type="submit" class="primary" id="ask-send">Send</button>
+      </form>
+      <ol id="ask-log" class="ask-log" aria-live="polite"></ol>
+    </section>
+
     <section id="tab-apps" class="tab" role="tabpanel" hidden>
       <div class="tab-head"><h2>Apps</h2><button id="apps-refresh" class="link">Refresh</button></div>
       <div id="apps" class="apps" aria-live="polite"></div>
@@ -124,6 +140,8 @@
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="remote" aria-selected="true">
         <svg viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="3"/><circle cx="12" cy="9" r="2"/></svg>Remote</button>
+      <button role="tab" data-tab="ask" aria-selected="false">
+        <svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>Ask</button>
       <button role="tab" data-tab="apps" aria-selected="false">
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Apps</button>
       <button role="tab" data-tab="keyboard" aria-selected="false">

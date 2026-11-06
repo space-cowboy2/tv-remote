@@ -11,6 +11,8 @@ Environment
   TVREMOTE_WEB_DIR    folder of the web app to serve at / (optional)
   TVREMOTE_SECURE_COOKIE  1 to always mark the sign-in cookie Secure (set when
                       served over HTTPS, e.g. behind `tailscale serve`)
+  ANTHROPIC_API_KEY   enables /api/assistant (or put the key in anthropic.key
+                      next to tv.json, mode 600). See docs/ASSISTANT.md.
   TVREMOTE_TRUSTED_PROXIES  proxies whose X-Forwarded-* headers are trusted
                       (default 127.0.0.1, which covers `tailscale serve`)
 """
@@ -34,6 +36,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
+from .assistant import Assistant, TVActions, load_api_key, load_macros
 from .config import TVConfig, default_path
 from .keys import KEY_GROUPS, is_valid_key, normalize_key
 from .samsung import SamsungTV, TVError, TVUnreachable
@@ -98,6 +101,10 @@ class PowerBody(BaseModel):
     state: Literal["on", "off"]
 
 
+class AssistantBody(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
 class LoginBody(BaseModel):
     key: str = Field(max_length=200)
 
@@ -105,7 +112,8 @@ class LoginBody(BaseModel):
 # ------------------------------------------------------------------------ app
 
 def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
-               config_path: Path | None = None, web_dir: str | None = None) -> FastAPI:
+               config_path: Path | None = None, web_dir: str | None = None,
+               assistant_client: Any = None) -> FastAPI:
     config_path = config_path or default_path()
     if tv is None:
         cfg = TVConfig.load(config_path)
@@ -121,6 +129,8 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
     limiter = LoginLimiter()
     apps_cache: dict[str, Any] = {"at": 0.0, "apps": []}
     tv_lock = asyncio.Lock()
+    assistant_limiter = LoginLimiter(limit=20, window=60)
+    assistant: Assistant | None = None
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -244,6 +254,44 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
             async with tv_lock:
                 await tv.power_off()
         return {"ok": True, "power": await tv.power_state()}
+
+    async def cached_apps() -> list[dict[str, Any]]:
+        return await apps(refresh=False)
+
+    def get_assistant() -> Assistant:
+        nonlocal assistant
+        if assistant is None:
+            api_key = load_api_key(config_path.parent)
+            if not api_key and assistant_client is None:
+                raise HTTPException(503, "Claude is not set up on the hub. Add an Anthropic API key (see docs/ASSISTANT.md).")
+            macros = load_macros(config_path.parent)
+            assistant = Assistant(lambda: TVActions(tv, tv_lock, macros, cached_apps),
+                                  api_key=api_key or "", client=assistant_client)
+        return assistant
+
+    @app.get("/api/assistant", dependencies=auth)
+    async def assistant_status() -> dict[str, Any]:
+        return {"enabled": assistant_client is not None or bool(load_api_key(config_path.parent))}
+
+    @app.post("/api/assistant", dependencies=auth)
+    async def ask(body: AssistantBody, request: Request) -> dict[str, Any]:
+        client = request.client.host if request.client else "?"
+        if assistant_limiter.blocked(client):
+            raise HTTPException(429, "too many requests, slow down")
+        assistant_limiter.fail(client)  # counts every request
+        bot = get_assistant()
+        from anthropic import APIConnectionError, APIStatusError, AuthenticationError, RateLimitError
+        try:
+            return await bot.handle(body.text.strip())
+        except AuthenticationError:
+            raise HTTPException(503, "The hub's Anthropic API key was rejected.")
+        except RateLimitError:
+            raise HTTPException(429, "Claude is busy, try again in a moment.")
+        except APIStatusError as e:
+            log.warning("Claude API error %s: %s", e.status_code, e.message)
+            raise HTTPException(502, f"Claude error ({e.status_code}).")
+        except APIConnectionError:
+            raise HTTPException(504, "Can't reach Claude from the hub.")
 
     # -- low-latency channel for button presses: send {"key": "KEY_UP"} or {"text": "..."}
     @app.websocket("/api/ws")

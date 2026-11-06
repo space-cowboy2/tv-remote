@@ -1,5 +1,5 @@
 // Caches the app shell so it opens instantly. API calls always go to the network.
-const CACHE = "tvremote-v1";
+const CACHE = "tvremote-v2";
 const SHELL = ["/", "index.html", "style.css", "app.js", "icon.svg", "manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

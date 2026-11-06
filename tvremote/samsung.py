@@ -365,6 +365,19 @@ class SamsungTV:
             },
         })
 
+    async def open_deep_link(self, app_id: str, meta_tag: str) -> None:
+        """Ask an app to open specific content (e.g. YouTube "v=<id>"). Sent
+        over the WebSocket because the REST launch ignores parameters. Apps
+        that don't support it just open normally or ignore it."""
+        await self._send({
+            "method": "ms.channel.emit",
+            "params": {
+                "event": "ed.apps.launch",
+                "to": "host",
+                "data": {"appId": app_id, "action_type": "DEEP_LINK", "metaTag": meta_tag},
+            },
+        })
+
     # --------------------------------------------------------------------- power
 
     async def info(self) -> dict[str, Any]:

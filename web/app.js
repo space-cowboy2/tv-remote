@@ -202,6 +202,7 @@ $$(".tabs [data-tab]").forEach((tab) =>
     $$(".tab").forEach((p) => (p.hidden = p.id !== `tab-${tab.dataset.tab}`));
     if (tab.dataset.tab === "apps" && !state.appsLoaded) loadApps();
     if (tab.dataset.tab === "keyboard") $("#text").focus();
+    if (tab.dataset.tab === "ask") $("#ask").focus();
   })
 );
 
@@ -257,6 +258,60 @@ async function sendText(submit) {
 }
 $("#text-form").addEventListener("submit", (e) => { e.preventDefault(); sendText(false); });
 $("#text-submit").addEventListener("click", () => sendText(true));
+
+// --------------------------------------------------------------- ask claude
+function logAsk(text, cls) {
+  const li = document.createElement("li");
+  li.className = cls;
+  li.textContent = text;
+  const log = $("#ask-log");
+  log.prepend(li);
+  while (log.children.length > 20) log.lastElementChild.remove();
+  return li;
+}
+
+$("#ask-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = $("#ask");
+  const text = input.value.trim();
+  if (!text) return;
+  const send = $("#ask-send");
+  send.disabled = true;
+  input.value = "";
+  logAsk(text, "you");
+  const pending = logAsk("Working on it…", "claude pending");
+  try {
+    const r = await api("assistant", { method: "POST", body: { text } });
+    pending.textContent = r.reply;
+    pending.classList.remove("pending");
+  } catch (ex) {
+    pending.textContent = ex.message;
+    pending.className = "claude error";
+  } finally {
+    send.disabled = false;
+    setTimeout(refreshStatus, 1000);
+  }
+});
+
+const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (Speech) {
+  const mic = $("#ask-mic");
+  mic.hidden = false;
+  mic.addEventListener("click", () => {
+    const rec = new Speech();
+    rec.lang = navigator.language || "en-US";
+    rec.interimResults = true;
+    mic.classList.add("listening");
+    rec.onresult = (ev) => {
+      const r = ev.results[ev.results.length - 1];
+      $("#ask").value = r[0].transcript;
+      if (r.isFinal) $("#ask-form").requestSubmit();
+    };
+    rec.onerror = (ev) => { if (ev.error !== "no-speech" && ev.error !== "aborted") toast(`Mic: ${ev.error}`); };
+    rec.onend = () => mic.classList.remove("listening");
+    rec.start();
+  });
+}
 
 // -------------------------------------------------------------------- boot
 if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
