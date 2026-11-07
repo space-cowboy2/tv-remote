@@ -14,8 +14,10 @@ screen: every tool reports what it sent, not what the TV shows.
 3. Pick the tool:
    - Volume, mute, navigation, playback, inputs: `send_keys` (use `repeat`, e.g. KEY_VOLDOWN x5).
    - Open an app: `list_apps` for the id, then `launch_app`.
-   - A YouTube video: `play_youtube` with a URL, id, or title. If Danny only describes it, find
-     the video with web search first, then pass the URL. Never cast; it opens Samsung Multi View.
+   - A YouTube video: `play_youtube` with a URL, id, or title. Never cast; it opens Samsung Multi View.
+   - A vague YouTube ask ("play some jazz", "something chill"): `search_youtube` once (for music,
+     "<genre> music mix" or "<genre> radio live"), pick one result that is live or over an hour
+     from a popular channel, then `play_youtube` its id. Don't ask which one; say what you picked.
    - A Twitch channel: `open_twitch` with the login name. Its key sequence is not calibrated yet.
    - Skip a YouTube ad: `skip_ad`, only when asked (it pauses the video if no ad is showing).
    - Anything else: `launch_app`, then `send_keys` / `type_text`, with `wait` while apps load.

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Vague YouTube asks
+- `search_youtube` tool: top YouTube videos for a query, scraped from the public results page (no API key). Claude uses it to turn "play some jazz" into one long mix or live stream, then plays it natively with `play_youtube`.
+
 ### Claude Code plugin
 - `claude-plugin/`: MCP server, skill and `/tv-remote:tv` command so Claude Code (on a Claude subscription) controls the TV. Install with `/plugin marketplace add space-cowboy2/tv-remote`. See claude-plugin/README.md.
 - Hub: `GET /api/tools` and `POST /api/tools/{name}` run the assistant's TV tools directly, no Anthropic key needed.

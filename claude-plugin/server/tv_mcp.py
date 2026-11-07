@@ -29,7 +29,8 @@ VERSION = "0.1.0"
 INSTRUCTIONS = """Controls Danny's Samsung TV (2024 Tizen OLED) through his hub.
 - The hub can't see the screen: tools report what was sent, not what the TV shows. Say so when it matters.
 - Call get_notes first in a session: it holds what's been learned about this TV and Danny's preferences.
-- YouTube: always play_youtube (native in-app search). Never cast. Twitch: open_twitch (uncalibrated).
+- YouTube: always play_youtube (native in-app search). Never cast. For a vague ask ("play some jazz"),
+  search_youtube first, pick one long mix or live stream, and play_youtube its id. Twitch: open_twitch (uncalibrated).
 - If the TV is off and the request needs it on, set_power on first.
 - When Danny says what the screen actually did, fix the macro with save_macro and remember lasting facts."""
 

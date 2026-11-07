@@ -87,8 +87,10 @@ How to work:
 - You cannot see the TV screen. Tools report what was sent, not what is shown. If a step \
 can't be confirmed (blind key sequences, deep links some apps ignore), say so briefly.
 - If the TV is off and the request needs it on, power it on first.
-- For YouTube videos, use web search to find the video id when the user doesn't give one, \
-then play_youtube. For Twitch channels use open_twitch.
+- YouTube: if the owner names no specific video ("play some jazz", "put on something chill"), \
+call search_youtube once with a good query (for music: "<genre> music mix" or "<genre> radio live"), \
+pick one result that is live or over an hour long from a popular channel, and play_youtube its id. \
+Don't ask which one. Say what you picked (title, channel). For Twitch channels use open_twitch.
 - For anything else, launch the app and, if needed, navigate with send_keys.
 - Reply in one or two short plain sentences: what you did, and anything the owner should check. No markdown."""
 
@@ -117,6 +119,12 @@ TOOLS: list[dict[str, Any]] = [
           "(the TV ignores direct links). Pass a youtube.com/youtu.be URL, an 11-character video id, "
           "or the title / search words. Takes about 25 s.",
           {"video": {"type": "string"}}),
+    _tool("search_youtube", "Search YouTube (on the internet, not on the TV) and return the top videos: "
+          "id, title, channel, length, live, views. Use it to turn a vague ask ('play some jazz', "
+          "'something chill') into one concrete video, then pass that video's id to play_youtube. "
+          "For music or background asks, search for a long mix or live radio (e.g. 'jazz music mix', "
+          "'jazz radio live') and pick a result that is live or over an hour, from a popular channel.",
+          {"query": {"type": "string"}}),
     _tool("run_macro", "Run a saved key sequence by name (see the notes and list_macros). value replaces {value}.",
           {"name": {"type": "string"}, "value": {"type": "string"}}),
     _tool("list_macros", "Saved key sequences with their steps.", {}),
@@ -223,6 +231,71 @@ def youtube_title(video_id: str) -> str | None:
         return None
 
 
+YT_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+         "(KHTML, like Gecko) Chrome/131.0 Safari/537.36")
+YT_DATA_RE = re.compile(r"(?:var ytInitialData|window\[\"ytInitialData\"\])\s*=\s*(\{.*?\});\s*(?:</script>|var |window\[)",
+                        re.DOTALL)
+
+
+def _yt_text(node: Any) -> str:
+    if not isinstance(node, dict):
+        return ""
+    if "simpleText" in node:
+        return str(node["simpleText"])
+    return "".join(str(r.get("text", "")) for r in node.get("runs", []) if isinstance(r, dict))
+
+
+def _yt_videos(node: Any, out: list[dict[str, Any]]) -> None:
+    """Collect every videoRenderer in ytInitialData, in page order."""
+    if isinstance(node, dict):
+        vr = node.get("videoRenderer")
+        if isinstance(vr, dict) and vr.get("videoId"):
+            badges = json.dumps(vr.get("badges", [])) + json.dumps(vr.get("thumbnailOverlays", []))
+            length = _yt_text(vr.get("lengthText"))
+            out.append({
+                "id": vr["videoId"],
+                "title": _yt_text(vr.get("title")),
+                "channel": _yt_text(vr.get("ownerText") or vr.get("longBylineText")),
+                "length": length or None,
+                "live": not length and ("LIVE" in badges or "BADGE_STYLE_TYPE_LIVE_NOW" in badges),
+                "views": _yt_text(vr.get("viewCountText") or vr.get("shortViewCountText")) or None,
+            })
+            return
+        for v in node.values():
+            _yt_videos(v, out)
+    elif isinstance(node, list):
+        for v in node:
+            _yt_videos(v, out)
+
+
+def parse_youtube_results(html: str, limit: int = 8) -> list[dict[str, Any]]:
+    m = YT_DATA_RE.search(html)
+    if not m:
+        return []
+    try:
+        data = json.loads(m.group(1))
+    except ValueError:
+        return []
+    out: list[dict[str, Any]] = []
+    _yt_videos(data, out)
+    seen: set[str] = set()
+    uniq = [v for v in out if not (v["id"] in seen or seen.add(v["id"]))]
+    return uniq[:limit]
+
+
+def youtube_search(query: str, limit: int = 8) -> list[dict[str, Any]]:
+    """Top YouTube video results for a query, scraped from the public results
+    page (no API key). Shorts, channels and playlists are left out."""
+    url = "https://www.youtube.com/results?" + urllib.parse.urlencode(
+        {"search_query": query, "hl": "en", "gl": "US"})
+    req = urllib.request.Request(url, headers={
+        "User-Agent": YT_UA, "Accept-Language": "en-US,en;q=0.9",
+        "Cookie": "CONSENT=YES+1; SOCS=CAI"})  # skip the EU consent page
+    with urllib.request.urlopen(req, timeout=10) as r:
+        html = r.read().decode("utf-8", "replace")
+    return parse_youtube_results(html, limit)
+
+
 def extract_video_id(text: str) -> str | None:
     text = text.strip()
     if VIDEO_ID_RE.match(text):
@@ -292,6 +365,18 @@ class TVActions:
             query = search_words(query, limit=8)
         await self.run_macro("youtube_search", query)
         return f"searched YouTube on the TV for '{query}' and selected the first result (not visually confirmed)"
+
+    async def t_search_youtube(self, query: str) -> str:
+        query = " ".join(query.split())[:120]
+        if not query:
+            return "empty query"
+        try:
+            results = await asyncio.to_thread(youtube_search, query)
+        except OSError as e:
+            return f"YouTube search failed ({e}); try play_youtube with search words instead"
+        if not results:
+            return "no videos found; try other words"
+        return json.dumps(results)
 
     async def t_run_macro(self, name: str, value: str = "") -> str:
         return await self.run_macro(name, value)

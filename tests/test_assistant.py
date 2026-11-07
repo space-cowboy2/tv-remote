@@ -177,3 +177,58 @@ def test_history_carries_followups(make_client):
     msgs = claude.requests[1]["messages"]
     assert [m["role"] for m in msgs] == ["user", "assistant", "user"]
     assert msgs[1]["content"] == "Opened Netflix."
+
+
+YT_PAGE = """<html><script nonce="x">var ytInitialData = {"contents":{"twoColumnSearchResultsRenderer":
+{"primaryContents":{"sectionListRenderer":{"contents":[{"itemSectionRenderer":{"contents":[
+{"channelRenderer":{"channelId":"UCx","title":{"simpleText":"Jazz Channel"}}},
+{"videoRenderer":{"videoId":"Dx5qFachd3A","title":{"runs":[{"text":"Relaxing Jazz Piano Radio - 24/7 Live"}]},
+ "ownerText":{"runs":[{"text":"Cafe Music BGM channel"}]},"viewCountText":{"runs":[{"text":"1,234"},{"text":" watching"}]},
+ "badges":[{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_LIVE_NOW","label":"LIVE"}}]}},
+{"reelShelfRenderer":{"items":[]}},
+{"videoRenderer":{"videoId":"neV3EPgvZ3g","title":{"runs":[{"text":"Smooth Jazz Mix | 3 Hours"}]},
+ "longBylineText":{"runs":[{"text":"Jazz Vibes"}]},"lengthText":{"simpleText":"3:02:11"},
+ "viewCountText":{"simpleText":"5,000,000 views"}}},
+{"videoRenderer":{"videoId":"neV3EPgvZ3g","title":{"runs":[{"text":"dup"}]}}}
+]}}]}}}}};</script><script>var other = 1;</script></html>"""
+
+
+def test_parse_youtube_results():
+    got = asst.parse_youtube_results(YT_PAGE)
+    assert got == [
+        {"id": "Dx5qFachd3A", "title": "Relaxing Jazz Piano Radio - 24/7 Live", "channel": "Cafe Music BGM channel",
+         "length": None, "live": True, "views": "1,234 watching"},
+        {"id": "neV3EPgvZ3g", "title": "Smooth Jazz Mix | 3 Hours", "channel": "Jazz Vibes",
+         "length": "3:02:11", "live": False, "views": "5,000,000 views"},
+    ]
+    assert asst.parse_youtube_results("<html>consent page</html>") == []
+
+
+def test_vague_youtube_ask_resolves_to_a_video(make_client, fake, monkeypatch):  # noqa: F811
+    queries = []
+
+    def search(q, limit=8):
+        queries.append(q)
+        return asst.parse_youtube_results(YT_PAGE, limit)
+    monkeypatch.setattr(asst, "youtube_search", search)
+    claude = FakeClaude([
+        resp(tool("search_youtube", query="jazz music mix"), stop="tool_use"),
+        resp(tool("play_youtube", video="neV3EPgvZ3g"), stop="tool_use"),
+        resp(text("Playing Smooth Jazz Mix by Jazz Vibes.")),
+    ])
+    with make_client(claude) as c:
+        r = c.post("/api/assistant", headers=AUTH, json={"text": "play some jazz on youtube"})
+        assert r.status_code == 200
+        assert queries == ["jazz music mix"]
+        found = claude.requests[1]["messages"][-1]["content"][0]["content"]
+        assert "neV3EPgvZ3g" in found and "3:02:11" in found
+        assert wait_for(lambda: typed(fake) == ["Title for neV3EPgvZ3g Live Set 4K"])
+
+
+def test_search_youtube_reports_network_errors(make_client, monkeypatch):
+    def boom(q, limit=8):
+        raise OSError("offline")
+    monkeypatch.setattr(asst, "youtube_search", boom)
+    with make_client(FakeClaude([])) as c:
+        r = c.post("/api/tools/search_youtube", headers=AUTH, json={"query": "jazz"})
+        assert r.status_code == 200 and "search failed" in r.text

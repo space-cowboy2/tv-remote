@@ -30,6 +30,7 @@ The hub can't see the TV screen, so Claude only knows what it sent, not what the
 | Power, volume, mute, inputs, playback, navigation | key presses | Reliable |
 | Open an app | REST launch | Reliable |
 | Play a specific YouTube video (link, id or title) | `youtube_search` macro: Home, open YouTube, Left, Up, OK, type the title, submit, Right, OK. A link/id is turned into a title via YouTube's oEmbed endpoint. ~25 s. | Verified 2026-11-06 |
+| Play something vague ("play some jazz") | `search_youtube` scrapes YouTube's public results page (no API key) for ids, titles, channels, lengths and live badges; Claude picks a long mix or live stream and plays it with `play_youtube` | Parser unit-tested; YouTube can change its page, in which case the tool says it found nothing |
 | Open a specific Twitch channel | `twitch_channel` macro (same idea) | Not yet calibrated; tell Claude what the screen showed and it will fix the steps |
 | Skip a YouTube ad | `skip_ad` presses OK, which hits YouTube's Skip button when it's showing | Only on request: with no ad on screen, OK pauses the video |
 | Anything needing to read the screen ("is he live?", "pick the 3rd result") | not possible | — |

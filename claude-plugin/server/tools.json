@@ -72,6 +72,22 @@
   }
  },
  {
+  "name": "search_youtube",
+  "description": "Search YouTube (on the internet, not on the TV) and return the top videos: id, title, channel, length, live, views. Use it to turn a vague ask ('play some jazz', 'something chill') into one concrete video, then pass that video's id to play_youtube. For music or background asks, search for a long mix or live radio (e.g. 'jazz music mix', 'jazz radio live') and pick a result that is live or over an hour, from a popular channel.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
   "name": "run_macro",
   "description": "Run a saved key sequence by name (see the notes and list_macros). value replaces {value}.",
   "input_schema": {
