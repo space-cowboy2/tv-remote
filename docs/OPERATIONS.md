@@ -1,6 +1,6 @@
 # Operations
 
-## Everyday commands (on the Mac Mini)
+## Everyday commands (on a Mac hub)
 
 ```bash
 launchctl print gui/$(id -u)/com.tvremote.hub | grep -E "state|pid"   # is the hub running?
@@ -34,7 +34,7 @@ Rotate if a device is lost or the key was shared. Rotation signs out every brows
 Needed after a TV factory reset, or if the TV starts asking again / denying.
 
 ```bash
-tvremote pair --host 192.168.1.50   # press Allow on the TV
+tvremote pair --host <TV IP>   # press Allow on the TV
 launchctl kickstart -k gui/$(id -u)/com.tvremote.hub
 ```
 
@@ -58,9 +58,9 @@ tailscale serve reset
 | Power on does nothing | Enable Power On with Mobile on the TV. The TV must have been off for less than its deep-sleep window, and on the same LAN as the hub. |
 | Apps list is empty or missing an app | 2024 firmware does not report apps; the hub probes `tvremote/apps.py`. Add the app's ID there. Tap Refresh in the app (the list is cached 10 minutes). |
 | Pairing: "no answer to the pairing prompt" | Nobody pressed Allow within 60 s, or the device is in the TV's Device List as denied. Delete it and retry. |
-| Phone: page won't load | Tailscale not connected on the phone, or `tailscale serve` was reset. Check `tailscale serve status` on the Mac Mini. |
+| Phone: page won't load | Tailscale not connected on the phone, or `tailscale serve` was reset. Check `tailscale serve status` on the hub. |
 | Phone: "Please sign in" every time | The key was rotated, or the browser blocks cookies for the site. Sign in again with the current key. |
 | "Too many attempts, try later" | 5 wrong keys in 5 minutes from that device; wait 5 minutes. |
 | Hub keeps restarting | Look at the log. Common: venv moved or deleted (re-run `build-app.sh` with the right venv), or `tv.json` missing (pair again). |
-| TV unreachable only when a Tailscale setting changes | The home LAN overlaps Tailscale's 100.64.0.0/10. Turn off accept-routes and exit nodes on the Mac Mini; `route get 192.168.1.50` must show the Wi-Fi interface. |
-| Wired PC can't open the LAN address | The wired network is isolated from the Wi-Fi. Use the Tailscale URL on the PC. |
+| TV unreachable only when a Tailscale setting changes | Your home LAN overlaps Tailscale's 100.64.0.0/10. Turn off accept-routes and exit nodes on the hub; `route get <TV IP>` must show the Wi-Fi interface. |
+| Wired PC can't open the LAN address | Your router isolates wired devices from the Wi-Fi. Use the Tailscale URL on the PC. |

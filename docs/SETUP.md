@@ -1,15 +1,15 @@
 # Setup
 
-How this was set up for a 42" 2024 Samsung OLED with a Mac Mini hub, and how to rebuild it from scratch.
+How to set it up for your own Samsung smart TV (Tizen, 2016 or newer) with an always-on Mac as the hub. For a Raspberry Pi or other Linux hub, see the end. Replace `<TV IP>` below with your TV's address.
 
-## Current deployment
+## What you end up with
 
 | Item | Value |
 |---|---|
-| TV | Samsung 42" 2024 OLED (S90D class), Tizen platform `24_PTM_QD_T09`, on Wi-Fi at `192.168.1.50` |
-| Hub | Mac Mini (macOS 27, Wi-Fi, sleep off, restart after power failure on), code in `~/Projects/tv-remote`, venv `~/Projects/tv-remote/.venv`, Python 3.12 (Homebrew) |
+| TV | Any Samsung Tizen TV on your home Wi-Fi, with a reserved IP (`<TV IP>`) |
+| Hub | An always-on Mac on the same network (sleep off, restart after power failure on), code in `~/Projects/tv-remote`, venv `~/Projects/tv-remote/.venv`, Python 3.11+ |
 | Hub process | `~/Applications/TVRemoteHub.app` started by launchd agent `com.tvremote.hub`, listening on `127.0.0.1:8080` |
-| Remote URL | `https://your-hub.your-tailnet.ts.net` (Tailscale serve, tailnet devices only) |
+| Remote URL | `https://<hub>.<tailnet>.ts.net` (Tailscale serve, tailnet devices only) |
 | Secrets | `~/.config/tvremote/tv.json` (TV token), `~/.config/tvremote/hub.key` (access key), both mode 600, never in git |
 | Logs | `~/Library/Logs/tvremote-hub.log` |
 
@@ -19,7 +19,7 @@ How this was set up for a 42" 2024 Samsung OLED with a Mac Mini hub, and how to 
 2. Settings > General > Network > Expert Settings > **Power On with Mobile**: On.
 3. Settings > General > External Device Manager > Device Connection Manager > Access Notification: **First Time Only**.
 
-## 2. Install on the Mac Mini
+## 2. Install on the hub (Mac)
 
 ```bash
 # prerequisites: Homebrew, Python 3.11+, Xcode Command Line Tools
@@ -37,7 +37,7 @@ System Settings:
 
 ```bash
 tvremote discover                         # finds the TV (or skip and use its IP)
-tvremote pair --host 192.168.1.50      # press Allow on the TV within 60 s
+tvremote pair --host <TV IP>              # press Allow on the TV within 60 s
 tvremote key volup voldown                # TV volume should move
 tvremote apps                             # lists installed apps
 tvremote status
@@ -61,15 +61,15 @@ Why the app wrapper is needed: [DECISIONS.md](DECISIONS.md#macos-local-network-p
 
 ## 5. Publish over Tailscale
 
-1. Install Tailscale on the Mac Mini and sign in. In the admin console (DNS page) turn on **MagicDNS** and **HTTPS certificates**.
-2. On the Mac Mini: `tailscale serve --bg 8080`, then `tailscale serve status` shows the HTTPS URL.
-3. Keep **Use Tailscale subnets** (accept routes) and exit nodes **off** on the Mac Mini. Confirm `route get 192.168.1.50` uses the Wi-Fi interface, not `utun`.
+1. Install Tailscale on the hub and sign in. In the admin console (DNS page) turn on **MagicDNS** and **HTTPS certificates**.
+2. On the hub: `tailscale serve --bg 8080`, then `tailscale serve status` shows the HTTPS URL.
+3. Keep **Use Tailscale subnets** (accept routes) and exit nodes **off** on the hub. Confirm `route get <TV IP>` uses the Wi-Fi interface, not `utun` (this matters most if your home network uses `100.x` addresses).
 
 ## 6. Set up each device
 
 1. Install Tailscale and sign in with the same account.
-2. Open `https://your-hub.your-tailnet.ts.net`.
-3. Sign in with the access key (on the Mac Mini: `pbcopy < ~/.config/tvremote/hub.key`, then paste it via Universal Clipboard or a password manager).
+2. Open `https://<hub>.<tailnet>.ts.net`.
+3. Sign in with the access key (on a Mac hub: `pbcopy < ~/.config/tvremote/hub.key`, then paste it via Universal Clipboard or a password manager).
 4. iPhone/iPad: Share > **Add to Home Screen**. Desktop Chrome/Edge: install icon in the address bar.
 
 Or install the native iPhone app: see [ios/README.md](../ios/README.md).

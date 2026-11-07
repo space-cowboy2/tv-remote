@@ -35,12 +35,12 @@ macOS (Sonoma and later) blocks LAN traffic from apps without Local Network perm
 
 ## Tailscale for access from anywhere
 
-`tailscale serve --bg 8080` gives the hub a real HTTPS certificate at `https://your-hub.your-tailnet.ts.net` with no port forwarding and no public exposure. HTTPS also lets the web app install to the home screen and use Secure cookies. The hub trusts `X-Forwarded-*` only from `127.0.0.1` (`TVREMOTE_TRUSTED_PROXIES`) so rate limiting sees real client IPs.
+`tailscale serve --bg 8080` gives the hub a real HTTPS certificate at `https://<hub>.<tailnet>.ts.net` with no port forwarding and no public exposure. HTTPS also lets the web app install to the home screen and use Secure cookies. The hub trusts `X-Forwarded-*` only from `127.0.0.1` (`TVREMOTE_TRUSTED_PROXIES`) so rate limiting sees real client IPs.
 
-It also solved two network problems in this house:
+It also gets around two common home-network problems:
 
-- **Wired PC is isolated from the Wi-Fi.** The PC on Ethernet cannot reach the Wi-Fi subnet at all; over Tailscale it reaches the Mac Mini directly.
-- **Address overlap.** The home Wi-Fi uses `100.x.y.0/26`, inside Tailscale's `100.64.0.0/10`. It works because the Mac Mini does not accept subnet routes or use an exit node, so the route to the TV (`192.168.1.50`) stays on Wi-Fi. Keep it that way; check with `route get 192.168.1.50` (interface must be Wi-Fi, not `utun`). Tailscale also adds a competing multicast route, which is why discovery accepts `--interface`.
+- **Wired PC isolated from the Wi-Fi.** Some routers keep Ethernet and Wi-Fi apart; over Tailscale a wired PC still reaches the hub directly.
+- **Address overlap.** Some home networks use addresses inside Tailscale's `100.64.0.0/10`. That still works as long as the hub does not accept subnet routes or use an exit node, so the route to the TV stays on Wi-Fi. Check with `route get <TV IP>` (interface must be Wi-Fi, not `utun`). Tailscale also adds a competing multicast route, which is why discovery accepts `--interface`.
 
 ## Sign-in design
 

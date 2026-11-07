@@ -1,6 +1,6 @@
 # TV Remote
 
-Control a Samsung TV from any phone, tablet or computer, at home or away. Built for a 42" 2024 Samsung OLED (Tizen), and works with most Samsung smart TVs from 2016 on.
+Control a Samsung TV from any phone, tablet or computer, at home or away. Works with most Samsung smart TVs (Tizen, 2016 on); tested on a 2024 Samsung OLED.
 
 - **Full remote:** power, arrows and OK, back, home, settings, volume and channel (hold to repeat), mute, input, playback, numbers, color keys, HDMI inputs
 - **Apps:** one-tap launch of Netflix, YouTube, Prime Video and other installed apps
@@ -9,7 +9,7 @@ Control a Samsung TV from any phone, tablet or computer, at home or away. Built 
 - **Private:** no cloud and no open ports. Devices reach the home hub only through your Tailscale network, over HTTPS, with an access key.
 
 ```
-phone / PC ──HTTPS (Tailscale)──► Mac Mini hub ──LAN──► Samsung TV
+phone / PC ──HTTPS (Tailscale)──► hub (Mac or Linux) ──LAN──► Samsung TV
 ```
 
 ## Quick start
@@ -33,7 +33,7 @@ Full walkthrough, including TV settings: **[docs/SETUP.md](docs/SETUP.md)**.
 
 | Doc | What's in it |
 |---|---|
-| [docs/SETUP.md](docs/SETUP.md) | Current deployment, step-by-step install on the Mac Mini (or a Raspberry Pi), Tailscale, adding devices |
+| [docs/SETUP.md](docs/SETUP.md) | Step-by-step install on a Mac (or a Raspberry Pi / Linux), Tailscale, adding devices |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, how a button press flows, security model, tests |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why it's built this way, and the gotchas: 2024 firmware app list, macOS Local Network and the `.app` wrapper, Tailscale address overlap |
 | [docs/API.md](docs/API.md) | Hub HTTP and WebSocket API, with curl examples |
