@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Claude Code plugin
+- `claude-plugin/`: MCP server, skill and `/tv-remote:tv` command so Claude Code (on a Claude subscription) controls the TV. Install with `/plugin marketplace add space-cowboy2/tv-remote`. See claude-plugin/README.md.
+- Hub: `GET /api/tools` and `POST /api/tools/{name}` run the assistant's TV tools directly, no Anthropic key needed.
+
 ### Ask Claude
 - `POST /api/assistant`: plain-language TV commands run by Claude with tool use over hub actions (power, keys, text, apps, YouTube deep links, key-sequence macros, web search). Key from `ANTHROPIC_API_KEY` or `anthropic.key`. See docs/ASSISTANT.md.
 - Ask tab in the web app (with mic where the browser supports speech) and the iOS app.

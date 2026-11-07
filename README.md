@@ -29,6 +29,14 @@ Then on each device: connect Tailscale, open `https://<hub>.<tailnet>.ts.net`, s
 
 Full walkthrough, including TV settings: **[docs/SETUP.md](docs/SETUP.md)**.
 
+## Claude Code
+
+Control the TV from Claude Code with the bundled plugin ([claude-plugin/README.md](claude-plugin/README.md)):
+
+```
+/plugin install tv-remote --marketplace space-cowboy2/tv-remote
+```
+
 ## Documentation
 
 | Doc | What's in it |
@@ -49,6 +57,7 @@ Full walkthrough, including TV settings: **[docs/SETUP.md](docs/SETUP.md)**.
 tvremote/        Python package: TV client, CLI, hub (FastAPI), discovery, Wake-on-LAN, simulated TV
 web/             Web app served by the hub (HTML/CSS/JS, installable, no build step)
 ios/             Native SwiftUI iPhone app (XcodeGen project)
+claude-plugin/   Claude Code plugin: MCP server, skill and /tv command over the hub API
 deploy/macos/    TVRemoteHub.app wrapper + launchd installer (Mac hub)
 deploy/          systemd unit (Linux hub), plain launchd plist (reference)
 tests/           pytest suite against a simulated TV; tests/e2e browser tests (Playwright)

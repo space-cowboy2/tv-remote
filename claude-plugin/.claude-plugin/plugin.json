@@ -1,0 +1,8 @@
+{
+  "name": "tv-remote",
+  "version": "0.1.0",
+  "description": "Control Danny's Samsung TV from Claude Code through the TV Remote hub: power, keys, volume, apps, YouTube, Twitch, macros and notes.",
+  "author": { "name": "Danny" },
+  "repository": "https://github.com/space-cowboy2/tv-remote",
+  "keywords": ["tv", "samsung", "remote", "home"]
+}

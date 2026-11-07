@@ -1,0 +1,11 @@
+{
+  "name": "tv-remote",
+  "owner": { "name": "Danny" },
+  "plugins": [
+    {
+      "name": "tv-remote",
+      "source": "./claude-plugin",
+      "description": "Control the TV from Claude Code through the TV Remote hub."
+    }
+  ]
+}

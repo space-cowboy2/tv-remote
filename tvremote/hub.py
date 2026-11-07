@@ -36,7 +36,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .assistant import Assistant, Memory, TVActions, load_api_key
+from .assistant import TOOLS, Assistant, Memory, TVActions, load_api_key
 from .config import TVConfig, default_path
 from .keys import KEY_GROUPS, is_valid_key, normalize_key
 from .samsung import SamsungTV, TVError, TVUnreachable
@@ -257,6 +257,34 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
         if "could not" in result:
             raise HTTPException(502, result)
         return {"ok": True, "result": result}
+
+    # -- the assistant's TV tools, callable directly (used by the Claude Code plugin,
+    # which brings its own Claude, so no Anthropic key is needed on the hub)
+    tool_names = {t["name"] for t in TOOLS}
+
+    @app.get("/api/tools", dependencies=auth)
+    async def list_tools() -> dict[str, Any]:
+        memory.reload()  # pick up hand edits to notes.md / macros.json
+        return {"tools": [{"name": t["name"], "description": t["description"],
+                           "input_schema": t["input_schema"]} for t in TOOLS],
+                "notes": memory.notes}
+
+    @app.post("/api/tools/{name}", dependencies=auth)
+    async def call_tool(name: str, request: Request) -> dict[str, Any]:
+        if name not in tool_names:
+            raise HTTPException(404, f"unknown tool {name}")
+        try:
+            args = await request.json() if await request.body() else {}
+        except ValueError:
+            raise HTTPException(422, "body must be a JSON object")
+        if not isinstance(args, dict):
+            raise HTTPException(422, "body must be a JSON object")
+        actions = TVActions(tv, tv_lock, memory, cached_apps)
+        try:
+            result = await actions.run(name, args)
+        except (TypeError, ValueError, KeyError) as e:
+            raise HTTPException(422, f"bad arguments for {name}: {e}")
+        return {"result": result}
 
     @app.post("/api/power", dependencies=auth)
     async def power(body: PowerBody) -> dict[str, Any]:
