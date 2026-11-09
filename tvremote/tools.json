@@ -1,0 +1,269 @@
+[
+ {
+  "name": "get_status",
+  "description": "TV power state (on, standby, off) and the hub's connection state.",
+  "input_schema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "set_power",
+  "description": "Turn the TV on (Wake-on-LAN) or off.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "state": {
+     "type": "string",
+     "enum": [
+      "on",
+      "off"
+     ]
+    }
+   },
+   "required": [
+    "state"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "list_apps",
+  "description": "Installed apps with their ids.",
+  "input_schema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "launch_app",
+  "description": "Open an installed app by id (from list_apps).",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "app_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "app_id"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "play_youtube",
+  "description": "Play a YouTube video in the TV's YouTube app by searching for it there (the TV ignores direct links). Pass a youtube.com/youtu.be URL, an 11-character video id, or the title / search words. Takes about 25 s.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "video": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "video"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "run_macro",
+  "description": "Run a saved key sequence by name (see the notes and list_macros). value replaces {value}.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "value": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "name",
+    "value"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "list_macros",
+  "description": "Saved key sequences with their steps.",
+  "input_schema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "save_macro",
+  "description": "Create or replace a key sequence so it is remembered. Steps: {\"key\": \"KEY_X\", \"repeat\": n} | {\"wait\": seconds} | {\"launch\": app_id} | {\"text\": \"...{value}...\", \"submit\": bool}.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z0-9_]{2,40}$"
+    },
+    "description": {
+     "type": "string"
+    },
+    "steps": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       },
+       "repeat": {
+        "type": "integer"
+       },
+       "wait": {
+        "type": "number"
+       },
+       "launch": {
+        "type": "string"
+       },
+       "text": {
+        "type": "string"
+       },
+       "submit": {
+        "type": "boolean"
+       }
+      },
+      "required": [],
+      "additionalProperties": false
+     }
+    }
+   },
+   "required": [
+    "name",
+    "description",
+    "steps"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "remember",
+  "description": "Append a lasting fact about this TV or the owner's preferences to the notes (one short line).",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "note": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "note"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "skip_ad",
+  "description": "Press OK once, which skips a YouTube ad when its Skip button is showing. Warning: if no ad is on screen this pauses the video. Only use when the owner asks.",
+  "input_schema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "open_twitch",
+  "description": "Open a Twitch channel (streamer login name, e.g. 'ohnepixel'). Twitch on this TV ignores direct links, so this runs a blind search key sequence; the result can't be confirmed.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "channel": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "channel"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "send_keys",
+  "description": "Press remote keys in order. Valid keys: KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_AMBIENT, KEY_CAPTION, KEY_CHDOWN, KEY_CHUP, KEY_CH_LIST, KEY_CYAN, KEY_DOWN, KEY_ENTER, KEY_EXIT, KEY_FF, KEY_GREEN, KEY_GUIDE, KEY_HDMI, KEY_HDMI1, KEY_HDMI2, KEY_HDMI3, KEY_HDMI4, KEY_HOME, KEY_INFO, KEY_LEFT, KEY_MENU, KEY_MUTE, KEY_PAUSE, KEY_PICTURE_SIZE, KEY_PLAY, KEY_POWER, KEY_PRECH, KEY_REC, KEY_RED, KEY_RETURN, KEY_REWIND, KEY_RIGHT, KEY_SOURCE, KEY_STOP, KEY_TOOLS, KEY_TV, KEY_UP, KEY_VOLDOWN, KEY_VOLUP, KEY_YELLOW. Use repeat for e.g. several volume steps.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "keys": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       },
+       "repeat": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "key",
+       "repeat"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "delay_ms": {
+     "type": "integer",
+     "description": "Pause between presses (default 300)."
+    }
+   },
+   "required": [
+    "keys",
+    "delay_ms"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "type_text",
+  "description": "Type into the TV's currently focused text field (a search box must be open). submit presses the keyboard's done/search.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "text": {
+     "type": "string"
+    },
+    "submit": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "text",
+    "submit"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "wait",
+  "description": "Pause, e.g. while an app loads (max 15 s).",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "seconds": {
+     "type": "number"
+    }
+   },
+   "required": [
+    "seconds"
+   ],
+   "additionalProperties": false
+  }
+ }
+]

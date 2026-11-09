@@ -37,6 +37,7 @@ from . import __version__
 from .config import TVConfig, default_path
 from .keys import KEY_GROUPS, is_valid_key, normalize_key
 from .samsung import SamsungTV, TVError, TVUnreachable
+from .tools import Store, Tools, UnknownTool
 
 log = logging.getLogger("tvremote.hub")
 COOKIE = "tvremote_session"
@@ -244,6 +245,28 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
             async with tv_lock:
                 await tv.power_off()
         return {"ok": True, "power": await tv.power_state()}
+
+    # -- agent tools (Claude plugin, Duet): same contract as tools.json
+    tools = Tools(tv, tv_lock, Store(config_path.parent))
+
+    @app.get("/api/tools", dependencies=auth)
+    async def list_tools() -> dict[str, Any]:
+        return tools.list()
+
+    @app.post("/api/tools/{name}", dependencies=auth)
+    async def call_tool(name: str, request: Request) -> dict[str, str]:
+        try:
+            args = await request.json() if await request.body() else {}
+        except ValueError:
+            raise HTTPException(422, "body must be JSON")
+        if not isinstance(args, dict):
+            raise HTTPException(422, "body must be a JSON object")
+        try:
+            return {"result": await tools.call(name, args)}
+        except UnknownTool:
+            raise HTTPException(404, f"unknown tool {name}")
+        except ValueError as e:
+            raise HTTPException(422, str(e))
 
     # -- low-latency channel for button presses: send {"key": "KEY_UP"} or {"text": "..."}
     @app.websocket("/api/ws")
