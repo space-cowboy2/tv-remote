@@ -1,0 +1,11 @@
+{
+  "name": "tv-remote",
+  "owner": { "name": "Danny" },
+  "plugins": [
+    {
+      "name": "tv-remote",
+      "source": "./claude-plugin",
+      "description": "Run the TV from a conversation through the TV Remote hub."
+    }
+  ]
+}

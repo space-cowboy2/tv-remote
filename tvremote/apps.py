@@ -31,3 +31,32 @@ KNOWN_APPS: dict[str, str] = {
     "3201703012079": "Vudu",
     "org.tizen.browser": "Internet",
 }
+
+# Apps the TV also registers with its DIAL server (port 8080). DIAL answers
+# "running or stopped" even on firmware where the REST app endpoints hang.
+DIAL_NAMES: dict[str, str] = {
+    "111299001912": "YouTube",
+    "3201907018807": "Netflix",
+    "11101200001": "Netflix",
+}
+
+# Other names people use for an app. Matching is by normalized name, so this
+# only needs the ones that share no words with the real name.
+APP_ALIASES: dict[str, str] = {
+    "amazon": "Prime Video",
+    "amazon prime": "Prime Video",
+    "prime": "Prime Video",
+    "disney": "Disney+",
+    "disney plus": "Disney+",
+    "hbo": "Max",
+    "hbo max": "Max",
+    "appletv": "Apple TV",
+    "apple tv plus": "Apple TV",
+    "paramount": "Paramount+",
+    "paramount plus": "Paramount+",
+    "browser": "Internet",
+    "web browser": "Internet",
+    "yt": "YouTube",
+}
+
+YOUTUBE_ID = "111299001912"

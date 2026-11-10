@@ -20,7 +20,8 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 async def main() -> None:
     fake = await FakeTV(answers_installed_apps=False).start()  # behave like 2024 firmware
-    tv = SamsungTV("127.0.0.1", port=fake.ws_port, info_port=fake.info_port, secure=False, mac=fake.mac)
+    tv = SamsungTV("127.0.0.1", port=fake.ws_port, info_port=fake.info_port, dial_port=fake.info_port,
+                   upnp_port=fake.info_port, secure=False, mac=fake.mac)
     key = os.environ.get("TVREMOTE_HUB_KEY", "dev")
     app = create_app(tv=tv, access_key=key, config_path=Path("/nonexistent/tv.json"), web_dir=str(WEB_DIR))
     port = int(os.environ.get("TVREMOTE_PORT", "8080"))

@@ -1,0 +1,599 @@
+[
+ {
+  "name": "get_state",
+  "description": "What is known right now: each paired TV with its power, volume, mute and whether YouTube is running; which TV is active; what the hub last started on each (last_started is a record, not a reading of the screen); pending timers; recent actions. Call it when a request depends on the current situation (\"is it on?\", \"what's playing?\", \"the next one\") or after a failure. Read-only and quick.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "find_tvs",
+  "description": "Scan the home network for TVs. Lists paired TVs, Samsung TVs that could be paired (with the command the owner runs on the hub), and other brands the hub cannot control. Use when a requested TV is not in get_state.",
+  "input_schema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "pair_tv",
+  "description": "Connect the hub to a Samsung TV on the home network so it can be controlled. The TV shows an Allow prompt that someone must accept with its remote within 45 s, so call this only when the person says they are at that TV. host comes from find_tvs. Also repairs a TV that started refusing the hub.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "host": {
+     "type": "string",
+     "description": "The TV's address on the home network, e.g. 192.168.1.50."
+    },
+    "label": {
+     "type": "string",
+     "description": "What people call this TV, e.g. \"Bedroom\"."
+    }
+   },
+   "required": [
+    "host"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "use_tv",
+  "description": "Make another paired TV the active one for the calls that follow (\"use the other TV\", \"on the bedroom TV\"). Answers with that TV's state, or says plainly when no such TV is paired.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "tv": {
+     "type": "string",
+     "description": "id or name from get_state, or \"other\"."
+    }
+   },
+   "required": [
+    "tv"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "set_power",
+  "description": "Turn the TV on or off and wait until the TV itself reports the new state (on: up to 40 s). play and open_app turn the TV on themselves, so call this only when power is the request.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "state": {
+     "type": "string",
+     "enum": [
+      "on",
+      "off"
+     ]
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "state"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "set_volume",
+  "description": "Set or change the volume and/or mute, then read the level back from the TV. level is absolute 0-100; change is relative steps (\"a bit quieter\" is about -3, \"much louder\" about +8); mute true/false sets the state exactly. The answer gives the level before and after.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "level": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 100
+    },
+    "change": {
+     "type": "integer",
+     "minimum": -50,
+     "maximum": 50
+    },
+    "mute": {
+     "type": "boolean"
+    },
+    "method": {
+     "type": "string",
+     "enum": [
+      "auto",
+      "keys"
+     ],
+     "description": "keys presses Vol+/Vol- instead (only for a soundbar that ignores the TV's own level)."
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "play",
+  "description": "Find something and start it on the TV, as one action: picks one specific video, turns the TV on if needed, opens the app, searches inside it, starts the first result, and checks every signal the TV gives. Takes 25-60 s. YouTube is the default service and the only one the hub can search inside; for any other service it opens the app and says the search was not done. Give query as plain search words you would type yourself (turn moods and vague asks into concrete words, e.g. \"relaxing piano music\"), or give video to play one exact YouTube video. The answer names the video chosen and separates what the TV confirmed from what was only sent; playback itself is confirmed only when the playback check is on for that TV and the answer says so (status verified); otherwise do not tell the user it is playing as a fact.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "description": "Search words, e.g. \"jazz music\", \"Tiny Desk Concert Anderson .Paak\"."
+    },
+    "video": {
+     "type": "string",
+     "description": "A youtube.com/youtu.be link or an 11-character video id (e.g. one from search_youtube)."
+    },
+    "service": {
+     "type": "string",
+     "description": "App to use. Default youtube."
+    },
+    "prefer": {
+     "type": "string",
+     "enum": [
+      "auto",
+      "long",
+      "live"
+     ],
+     "description": "long: videos over 20 minutes (music, background, ambience, mixes). live: live streams (radio, news, channels). auto: best match."
+    },
+    "avoid_recent": {
+     "type": "boolean",
+     "description": "Skip videos the hub started recently (\"something else\", \"another one\")."
+    },
+    "exclude": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "Video ids not to pick."
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "search_youtube",
+  "description": "Search YouTube on the internet (nothing happens on the TV) and list the top videos with id, title, channel, length and whether live. Use it when you want to choose among results yourself, e.g. to match a constraint (\"under an hour\", \"not a compilation\", a specific episode), then pass the chosen id to play as video. For ordinary requests skip it: play searches by itself.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string"
+    },
+    "prefer": {
+     "type": "string",
+     "enum": [
+      "auto",
+      "long",
+      "live"
+     ]
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "open_app",
+  "description": "Open an app on the TV by name (\"Netflix\", \"Prime Video\", \"Spotify\") or id, turning the TV on first if needed, and wait for the TV to report it running where the TV can.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "app": {
+     "type": "string",
+     "description": "App name as people say it, or an id from list_apps."
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "app"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "list_apps",
+  "description": "Apps installed on the TV, with ids.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "playback",
+  "description": "Control what is playing: pause, resume, stop, rewind, forward (seconds, default 10), next, previous. These press the remote's media keys; the TV reports no playback state, so the answer says they were pressed, not that they took effect. next/previous have no reliable key: the answer says so.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "action": {
+     "type": "string",
+     "enum": [
+      "pause",
+      "resume",
+      "stop",
+      "rewind",
+      "forward",
+      "next",
+      "previous"
+     ]
+    },
+    "seconds": {
+     "type": "number",
+     "minimum": 1,
+     "maximum": 3600,
+     "description": "For rewind/forward: how far. \"a little\" is about 15, \"a minute\" 60."
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "switch_input",
+  "description": "Switch the TV to an HDMI input or its tuner (hdmi1-hdmi4, tv), or open the source list (source). Presses the input key; the TV does not report which input is showing.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "input": {
+     "type": "string",
+     "enum": [
+      "hdmi1",
+      "hdmi2",
+      "hdmi3",
+      "hdmi4",
+      "hdmi",
+      "tv",
+      "source"
+     ]
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "input"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "schedule",
+  "description": "Run one TV action later (\"turn it off in 30 minutes\", \"pause in ten minutes\"). The hub keeps the timer; nothing has to stay open. Pending timers show in get_state.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "in_minutes": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 1440
+    },
+    "tool": {
+     "type": "string",
+     "enum": [
+      "set_power",
+      "set_volume",
+      "playback",
+      "play",
+      "open_app",
+      "switch_input",
+      "send_keys",
+      "run_macro"
+     ]
+    },
+    "args": {
+     "type": "object",
+     "description": "Arguments for that tool, exactly as it takes them."
+    },
+    "note": {
+     "type": "string",
+     "description": "A few words on what this timer is for."
+    }
+   },
+   "required": [
+    "in_minutes",
+    "tool",
+    "args"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "cancel_schedule",
+  "description": "Cancel a pending timer by id, or all of them when no id is given.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "skip_ad",
+  "description": "Press OK once, which skips a YouTube ad when its Skip button is showing.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "open_twitch",
+  "description": "Open Twitch and search for a channel by login name (uncalibrated key sequence; unconfirmed).",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "channel": {
+     "type": "string"
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "channel"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "send_keys",
+  "description": "Press remote keys in order, as a person would. For anything the outcome tools don't cover (menus, navigation, captions key). Keys: UP DOWN LEFT RIGHT ENTER RETURN HOME MENU EXIT INFO TOOLS GUIDE SOURCE, VOLUP VOLDOWN MUTE, CHUP CHDOWN PRECH CH_LIST, PLAY PAUSE STOP REWIND FF, 0-9, RED GREEN YELLOW CYAN, HDMI1-4 TV, CAPTION PICTURE_SIZE AMBIENT, POWER. Sent only: the hub cannot see the screen.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "keys": {
+     "type": "array",
+     "minItems": 1,
+     "items": {
+      "type": "object",
+      "properties": {
+       "key": {
+        "type": "string"
+       },
+       "repeat": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+       }
+      },
+      "required": [
+       "key"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "delay_ms": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 5000,
+     "description": "Pause between presses. Default 300."
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "keys"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "type_text",
+  "description": "Type into the TV's on-screen keyboard, which must already be open; submit presses its Done/Search.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "text": {
+     "type": "string"
+    },
+    "submit": {
+     "type": "boolean"
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "wait",
+  "description": "Pause between steps (up to 15 s).",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "seconds": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 15
+    }
+   },
+   "required": [
+    "seconds"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "run_macro",
+  "description": "Run a saved key sequence by name (see list_macros).",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "value": {
+     "type": "string",
+     "description": "Replaces {value} in the macro's text steps."
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "list_macros",
+  "description": "The saved key sequences, including the ones play uses to reach YouTube's search box.",
+  "input_schema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "save_macro",
+  "description": "Save or replace a key sequence. Use it when the owner has watched the screen and worked out keys that fit his TV: youtube_open_search and youtube_pick_first adjust play; <app>_search (e.g. netflix_search, with a {value} text step) teaches play to search inside another app; playback_next / playback_previous / playback_<action> replace what playback presses.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string",
+     "pattern": "^[a-z0-9_]{2,40}$"
+    },
+    "description": {
+     "type": "string"
+    },
+    "steps": {
+     "type": "array",
+     "minItems": 1,
+     "maxItems": 60,
+     "items": {
+      "type": "object",
+      "description": "Exactly one of key, wait, launch, text.",
+      "properties": {
+       "key": {
+        "type": "string"
+       },
+       "repeat": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50
+       },
+       "wait": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 15
+       },
+       "launch": {
+        "type": "string",
+        "description": "app id"
+       },
+       "text": {
+        "type": "string",
+        "description": "{value} is replaced with the macro's value"
+       },
+       "submit": {
+        "type": "boolean"
+       }
+      },
+      "additionalProperties": false
+     }
+    }
+   },
+   "required": [
+    "name",
+    "steps"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "playback_check",
+  "description": "Switch the read-only playback check for a TV on or off. Off by default. When on, play asks the TV's YouTube app, through YouTube's own remote link, what it is playing, so a started video can be reported as confirmed instead of only sent. It never starts, queues, pauses or changes anything on the TV. Call it only when the person asks for exactly this; it stays as set until changed.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "on": {
+     "type": "boolean"
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "on"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "remember",
+  "description": "Keep a one-line note about this household's TV habits for every later conversation (a stated preference, a default, a quirk of the TV). Notes come back with the guide. Not for one-off requests.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "note": {
+     "type": "string",
+     "maxLength": 300
+    }
+   },
+   "required": [
+    "note"
+   ],
+   "additionalProperties": false
+  }
+ }
+]
