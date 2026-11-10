@@ -85,9 +85,17 @@ powershell -ExecutionPolicy Bypass -File $env:USERPROFILE\tv-remote\deploy\windo
 
 The script installs the hub into `%LOCALAPPDATA%\tvremote\venv`, starts it without a window on `127.0.0.1:8080`, and registers it to start at every sign-in (no administrator rights). Settings, pairing and the access key are in `%USERPROFILE%\.config\tvremote`, the log in `hub.log` there. Clone into a folder only you can write to: the code runs as you.
 
-Pair with the TV on, either from a terminal (`%LOCALAPPDATA%\tvremote\venv\Scripts\python -m tvremote pair --host <TV IP>`) or by asking Claude to pair it while you are at the TV (`pair_tv`). The running hub picks the TV up by itself.
+It also copies the MCP server Claude talks to into `%LOCALAPPDATA%\tvremote\plugin`, so nothing depends on the clone afterwards.
 
-To let Claude run the TV on that PC, point an MCP client at `claude-plugin\server\tv_mcp.py` in the clone (see [claude-plugin/README.md](../claude-plugin/README.md)).
+Pair with the TV on, either from a terminal (`%LOCALAPPDATA%\tvremote\venv\Scripts\python -m tvremote pair --host <TV IP>`) or by asking Claude to pair it while you are at the TV (`pair_tv`). The running hub picks the TV up by itself. Before pairing, `python -m tvremote selftest --host <TV IP>` shows what the TV answers without sending it anything.
+
+To do it all in one run, with the TV on and someone there to press Allow:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File $env:USERPROFILE\tv-remote\deploy\windows\install-hub.ps1 -Pair <TV IP> -Gateway $env:USERPROFILE\duet-gateway
+```
+
+`-Pair` pairs and then runs the read-only self-test. `-Gateway` is for a [duet-gateway](https://github.com/space-cowboy2/duet-gateway) on the same PC: it points the gateway's `tv` upstream at this installation by full path (only that entry of its `config.json` changes; the file is never printed). Restart the gateway afterwards, and `tv_*` appears in Claude. Any other MCP client: run `%LOCALAPPDATA%\tvremote\venv\Scripts\python.exe %LOCALAPPDATA%\tvremote\plugin\tv_mcp.py` as a stdio server (see [claude-plugin/README.md](../claude-plugin/README.md)).
 
 ## Raspberry Pi / Linux hub instead
 

@@ -73,6 +73,7 @@ tvremote on | off
 tvremote hub-key [--rotate]       # show or rotate the hub access key
 tvremote pair --host <IP> --label Bedroom      # a second TV
 tvremote selftest [--full]        # what the real TV answers; --full also plays something
+tvremote selftest --host IP       # the same, read-only, for a TV that is not paired yet
 tvremote tool play '{"query": "jazz music", "prefer": "long"}'   # any agent tool, without the hub
 ```
 

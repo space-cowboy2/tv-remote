@@ -67,6 +67,7 @@ tailscale serve reset
 | Power on does nothing | Enable Power On with Mobile on the TV. The TV must have been off for less than its deep-sleep window, and on the same LAN as the hub. |
 | Apps list is empty or missing an app | 2024 firmware does not report apps; the hub probes `tvremote/apps.py`. Add the app's ID there. Tap Refresh in the app (the list is cached 10 minutes). |
 | Claude says the TV hub is not answering | The hub is not running on its computer. Windows: run `deploy\windows\install-hub.ps1` again and read `hub.log`. |
+| Claude has no TV tools at all (behind duet-gateway) | The gateway could not start the TV's MCP server. Its `guide` tool and `npm run doctor` give the reason. `install-hub.ps1 -Gateway <gateway folder>` sets the right paths; restart the gateway afterwards. |
 | `play` fails with `search_box_not_found` | The keys that open YouTube's search do not fit this TV's layout. Watch the screen during one run, then save the right steps as `youtube_open_search` (`save_macro`). |
 | `tvremote discover` lists the TV as "other device" or not at all | Some models (2022 Q60B) only answer as a DIAL device; they are still recognized by their SERVER header. If nothing is listed, pass the address with `--host`. |
 | Pairing: "no answer to the pairing prompt" | Nobody pressed Allow within 60 s, or the device is in the TV's Device List as denied. Delete it and retry. |

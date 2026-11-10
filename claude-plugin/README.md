@@ -23,7 +23,9 @@ Claude Code:
 ```
 
 Any other MCP client (for example a gateway that serves Claude on your phone): run
-`python <clone>/claude-plugin/server/tv_mcp.py` as a stdio server.
+`python <clone>/claude-plugin/server/tv_mcp.py` as a stdio server. On Windows the hub installer
+copies the server to `%LOCALAPPDATA%\tvremote\plugin`, and `install-hub.ps1 -Gateway <folder>`
+sets a duet-gateway's `tv` upstream to it.
 
 Windows: if `python3` is not on PATH, change `command` in `.mcp.json` to `python` or `py`.
 

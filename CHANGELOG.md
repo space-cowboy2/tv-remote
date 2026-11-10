@@ -13,9 +13,9 @@ Conversational control: the agent tools do whole jobs and answer with evidence. 
 - TV client: power state from three signals (no blind `KEY_POWER`), app state through DIAL when the REST app endpoints hang (2022 Q60B), UPnP volume, keyboard events, launch acknowledgment, app close.
 - Discovery finds Samsungs that ignore the Samsung-specific search (Q60B) and lists other brands as not controllable.
 - Claude plugin 0.2.0 in `claude-plugin/`: local hub by default, `get_guide`, structured errors, UTF-8 on Windows.
-- Windows hub: `deploy/windows/install-hub.ps1`; file logging when there is no console.
-- `tvremote selftest [--full]` and `tvremote tool <name> <json>` for live checks.
-- Tests: 156, all on a simulated TV with a YouTube screen model and virtual time.
+- Windows hub: `deploy/windows/install-hub.ps1`; file logging when there is no console. `-Pair <address>` pairs in the same run, `-Gateway <folder>` points a duet-gateway's `tv` upstream at the installation (`tvremote link-gateway`).
+- `tvremote selftest [--full]`, `tvremote selftest --host <address>` (read-only, before pairing) and `tvremote tool <name> <json>` for live checks.
+- Tests: 160, all on a simulated TV with a YouTube screen model and virtual time.
 
 ## 0.1.0 (2026-11-05)
 

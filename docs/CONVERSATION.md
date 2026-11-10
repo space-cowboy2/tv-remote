@@ -136,8 +136,9 @@ The simulation checks the hub's logic. It cannot show that a real TV reacts the 
 Live, on the real TV:
 
 ```
-tvremote selftest          # read-only: which signals this TV answers
-tvremote selftest --full   # volume down and up one, play, pause, resume; prints every report
+tvremote selftest --host IP   # read-only, before pairing: which signals this TV answers
+tvremote selftest             # the same for the paired TV, plus the remote-control channel and the app list
+tvremote selftest --full      # volume down and up one, play, pause, resume; prints every report
 ```
 
 Even live, a person has to look at the screen once to confirm that the right video came up,
