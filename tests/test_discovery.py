@@ -47,3 +47,43 @@ async def test_scan_on_a_blocked_network_is_empty_not_an_error(monkeypatch):
         raise OSError(65, "No route to host")
     monkeypatch.setattr(d, "_ssdp_scan", blocked)
     assert await d.scan(0.1) == []
+
+
+def test_the_search_leaves_from_every_local_address(monkeypatch):
+    """Seen live on a PC with Tailscale: the system's own choice of network found nothing,
+    the search pinned to the home network's address found both TVs."""
+    asked = []
+
+    def search_from(address, timeout):
+        asked.append(address)
+        if address == "100.111.6.22":
+            raise OSError(10051, "network unreachable")   # one network failing does not hide the others
+        return [(Q60B, "10.0.0.16"), (SONY, "10.0.0.10")] if address == "10.0.0.18" else []
+
+    monkeypatch.setattr(d, "local_addresses", lambda: ["10.0.0.18", "100.111.6.22"])
+    monkeypatch.setattr(d, "_search_from", search_from)
+    found = d._ssdp_scan(0.1, None)
+    assert sorted(asked, key=str) == ["10.0.0.18", "100.111.6.22", None]
+    assert [x["host"] for x in found] == ["10.0.0.16", "10.0.0.10"]
+    assert d._ssdp_blocking(0.1, None) == ["10.0.0.16"]
+    # one address given: only that one is used
+    asked.clear()
+    d._ssdp_scan(0.1, "10.0.0.18")
+    assert asked == ["10.0.0.18"]
+
+
+def test_a_search_that_fails_everywhere_is_an_error(monkeypatch):
+    import pytest
+
+    def blocked(address, timeout):
+        raise OSError(65, "No route to host")
+    monkeypatch.setattr(d, "local_addresses", lambda: ["10.0.0.18"])
+    monkeypatch.setattr(d, "_search_from", blocked)
+    with pytest.raises(OSError):
+        d._ssdp_scan(0.1, None)
+
+
+def test_local_addresses_and_a_real_search_do_not_raise():
+    addresses = d.local_addresses()
+    assert all(not a.startswith("127.") for a in addresses)
+    assert isinstance(d._search_from(None, 0.05), list)   # nothing answers in a test run; it must just come back

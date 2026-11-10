@@ -102,10 +102,11 @@ def test_a_whole_conversation_through_the_plugin(hub, tmp_path):
     keyfile = tmp_path / "hub.key"
     keyfile.write_text(KEY + "\n")
     env = {"TVREMOTE_HUB_URL": hub.url, "TVREMOTE_HUB_KEY_FILE": str(keyfile)}
-    init, tools, guide, play, quieter, bad = mcp(
+    init, tools, guide, play, quieter, bad, nothing = mcp(
         env, INIT, INITED, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
         call(3, "get_guide"), call(4, "play", query="jazz music", prefer="long"),
-        call(5, "set_volume", change=-3), call(6, "set_volume", level=500))
+        call(5, "set_volume", change=-3), call(6, "set_volume", level=500),
+        call(7, "play", query="zzzz no such thing zzzz"))
     assert init["result"]["serverInfo"]["name"] == "tv-remote"
     # Short enough to survive behind a gateway that puts its own instructions first.
     assert "get_guide" in init["result"]["instructions"] and len(init["result"]["instructions"]) < 500
@@ -120,6 +121,9 @@ def test_a_whole_conversation_through_the_plugin(hub, tmp_path):
     assert json.loads(quieter["result"]["content"][0]["text"])["status"] == "verified" and hub.volume == 9
     refused = json.loads(bad["result"]["content"][0]["text"])
     assert bad["result"]["isError"] and refused["failed"]["kind"] == "bad_request" and "level" in refused["failed"]["why"]
+    # An outcome that was not reached is an error for the client as well, with the report as its text.
+    failed = json.loads(nothing["result"]["content"][0]["text"])
+    assert nothing["result"]["isError"] is True and failed["ok"] is False and failed["failed"]["kind"] == "nothing_found"
 
 
 def test_text_that_is_not_ascii_survives_the_pipe(hub):

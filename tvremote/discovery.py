@@ -3,7 +3,8 @@
 Not every Samsung answers the Samsung-specific search target: a 2022 Q60B
 stays silent for it and only answers as a DIAL device and a media renderer.
 So the search asks for all three and recognizes a Samsung by its SERVER
-header. scan() also reports the other TVs it saw (for example a Sony), so the
+header. And a computer with a VPN sends multicast out of the wrong
+network unless told otherwise, so the search goes out of every local address. scan() also reports the other TVs it saw (for example a Sony), so the
 hub can say "that one isn't supported" instead of "there is no other TV".
 
 On macOS, Python needs Local Network permission (System Settings > Privacy &
@@ -68,28 +69,72 @@ def parse_headers(data: bytes) -> dict[str, str]:
     return headers
 
 
-def _ssdp_scan(timeout: float, interface: str | None) -> list[dict[str, str]]:
-    """Every device that answered one of SEARCH_TARGETS: host, server, st, location."""
-    found: dict[str, dict[str, str]] = {}
+def local_addresses() -> list[str]:
+    """This computer's own IPv4 addresses, one per network it is on."""
+    found: set[str] = set()
+    try:
+        found.update(info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET))
+    except OSError:
+        pass
+    try:  # the address of the default route; on Linux the host name often resolves to loopback only
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))  # no packet is sent
+            found.add(s.getsockname()[0])
+    except OSError:
+        pass
+    return sorted(a for a in found if not a.startswith("127.") and a != "0.0.0.0")
+
+
+def _search_from(address: str | None, timeout: float) -> list[tuple[bytes, str]]:
+    """Send the searches out of one local address (None: wherever the system sends multicast)
+    and collect (response, sender) pairs until the timeout."""
+    out: list[tuple[bytes, str]] = []
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as s:
         s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-        if interface:
-            # Pin multicast to the LAN interface (VPNs like Tailscale can steal the route).
-            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(interface))
+        if address:
+            s.bind((address, 0))
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(address))
         s.settimeout(timeout)
         for target in SEARCH_TARGETS:
             s.sendto(_search_message(target), SSDP_ADDR)
         try:
             while True:
                 data, addr = s.recvfrom(65507)
-                headers = parse_headers(data)
-                host = parse_response(data) or addr[0]
-                seen = found.setdefault(host, {"host": host, "server": "", "st": "", "location": ""})
-                seen["server"] = seen["server"] or headers.get("server", "")
-                seen["location"] = seen["location"] or headers.get("location", "")
-                seen["st"] = (seen["st"] + " " + headers.get("st", "")).strip()
+                out.append((data, addr[0]))
         except socket.timeout:
             pass
+    return out
+
+
+def _ssdp_scan(timeout: float, interface: str | None) -> list[dict[str, str]]:
+    """Every device that answered one of SEARCH_TARGETS: host, server, st, location.
+
+    A computer on several networks (a VPN such as Tailscale, a virtual switch)
+    sends multicast out of only one of them, and it is often not the one the TV
+    is on. So unless one address is given, the search leaves from each of this
+    computer's addresses at the same time."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    addresses: list[str | None] = [interface] if interface else [None, *local_addresses()]
+    with ThreadPoolExecutor(max_workers=len(addresses)) as pool:
+        jobs = [pool.submit(_search_from, a, timeout) for a in addresses]
+    errors: list[OSError] = []
+    found: dict[str, dict[str, str]] = {}
+    for job in jobs:
+        try:
+            answers = job.result()
+        except OSError as e:  # one network being down or closed to us must not hide the others
+            errors.append(e)
+            continue
+        for data, sender in answers:
+            headers = parse_headers(data)
+            host = parse_response(data) or sender
+            seen = found.setdefault(host, {"host": host, "server": "", "st": "", "location": ""})
+            seen["server"] = seen["server"] or headers.get("server", "")
+            seen["location"] = seen["location"] or headers.get("location", "")
+            seen["st"] = (seen["st"] + " " + headers.get("st", "")).strip()
+    if errors and len(errors) == len(jobs):
+        raise errors[0]
     return list(found.values())
 
 

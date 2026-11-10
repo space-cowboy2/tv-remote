@@ -142,7 +142,11 @@ class Server:
             res = self.hub.request("POST", f"/api/tools/{name}", args or {}, timeout=CALL_TIMEOUT)
         except HubError as e:
             return e.report(), True
-        return str(res.get("result", res)) if isinstance(res, dict) else str(res), False
+        if not isinstance(res, dict):
+            return str(res), False
+        # A report whose outcome was not reached is an error to the client too, so a failed play
+        # is never logged or shown as a call that went fine.
+        return str(res.get("result", res)), res.get("ok") is False
 
     def handle(self, msg: dict[str, Any]) -> dict[str, Any] | None:
         method, mid = msg.get("method"), msg.get("id")

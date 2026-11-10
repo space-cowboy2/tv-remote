@@ -147,7 +147,8 @@ def test_ssdp_parse():
 def test_config_roundtrip_is_private(tmp_path):
     p = tmp_path / "tv.json"
     TVConfig(host="1.2.3.4", token="secret", mac="AA:BB:CC:DD:EE:FF").save(p)
-    assert oct(os.stat(p).st_mode & 0o777) == "0o600"
+    if os.name != "nt":  # Windows has no mode bits: the file is protected by the profile folder's access list
+        assert oct(os.stat(p).st_mode & 0o777) == "0o600"
     cfg = TVConfig.load(p)
     assert cfg and cfg.token == "secret"
     assert json.loads(p.read_text())["host"] == "1.2.3.4"
