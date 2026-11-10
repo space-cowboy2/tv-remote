@@ -21,6 +21,11 @@ TV Remote lets any phone, tablet or computer control a Samsung TV, at home or aw
 | Wake-on-LAN | `tvremote/wol.py` | Magic packet to the TV's MAC. |
 | Config | `tvremote/config.py` | `~/.config/tvremote/tv.json` (host, MAC, model, pairing token), written atomically with mode 600. |
 | CLI | `tvremote/__main__.py` | `tvremote discover | pair | status | key | text | apps | launch | on | off | hub-key`. |
+| Agent tools | `tvremote/tools.py`, `tools.json`, `guide.md` | What an assistant calls: whole jobs (`play`, `set_volume`, `set_power`, ...) that check the TV's signals and answer with evidence, timers, several TVs, notes and saved key sequences. See [CONVERSATION.md](CONVERSATION.md). |
+| YouTube lookup | `tvremote/youtube.py` | Finds videos on the internet (no API key) so `play` settles on one video before touching the TV. |
+| Volume | `tvremote/upnp.py` | Absolute volume and mute with read-back through the TV's UPnP renderer. |
+| Claude plugin | `claude-plugin/` | Stdio MCP server that passes the hub's tools to Claude, plus a skill and a command. |
+| Windows hub | `deploy/windows/install-hub.ps1` | Per-user install that starts the hub at sign-in. |
 | Hub | `tvremote/hub.py` | FastAPI service (`tvremote-hub`). Holds one persistent TV connection, serializes commands, exposes the [HTTP/WebSocket API](API.md), checks the access key, serves the web app. |
 | Web app | `web/` | Plain HTML/CSS/JS, no build step. Remote, Apps and Keyboard tabs; installable to the home screen; light and dark; offline app shell via service worker. |
 | iOS app | `ios/` | Native iPhone client of the same hub API. See `ios/README.md`. |
@@ -50,6 +55,7 @@ See [SECURITY.md](../SECURITY.md) for reporting and rotation.
 
 ## Testing
 
-- `pytest`: 44 tests against the simulated TV (pairing allow/deny/timeout, keys, hold, text, apps on old and 2024 firmware, launch, reconnect, power, discovery fallbacks, config permissions, hub auth, cookies, rate limit, WebSocket, headers).
+- Conversational control is tested on a simulated TV with a model of YouTube's screens and virtual time; what was checked on real TVs is listed in [CONVERSATION.md](CONVERSATION.md#how-this-is-tested).
+- `pytest`: tests against the simulated TV (pairing allow/deny/timeout, keys, hold, text, apps on old and 2024 firmware, launch, reconnect, power, discovery fallbacks, config permissions, hub auth, cookies, rate limit, WebSocket, headers).
 - `tests/e2e/remote.spec.mjs`: 40 Playwright checks of the web app on an iPhone-sized and a desktop viewport, in light and dark (sign-in, wrong key, buttons over WebSocket, no horizontal scroll, apps, keyboard, power cycle, sign-out, no JS errors).
 - Verified on the real TV (42" 2024 OLED, platform `24_PTM_QD_T09`) from the Mac Mini: pairing, keys, status, app list (12 apps found), app launch, and the full path through the Tailscale HTTPS URL.

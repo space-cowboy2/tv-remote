@@ -1,0 +1,8 @@
+{
+  "name": "tv-remote",
+  "version": "0.2.0",
+  "description": "Run a Samsung TV from a conversation through the TV Remote hub: find and play things, power, volume, playback, apps, inputs, timers, several TVs.",
+  "author": { "name": "Danny" },
+  "repository": "https://github.com/space-cowboy2/tv-remote",
+  "keywords": ["tv", "samsung", "remote", "home"]
+}

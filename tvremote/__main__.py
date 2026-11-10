@@ -2,6 +2,13 @@
 
   python -m tvremote discover
   python -m tvremote pair --host 192.168.1.50
+  python -m tvremote pair --host 192.168.1.51 --label Bedroom   # a second TV
+  python -m tvremote selftest                  # what does this TV answer? (read-only)
+  python -m tvremote selftest --full           # also plays something and checks every step
+  python -m tvremote selftest --host 192.168.1.50   # read-only check before pairing
+  python -m tvremote tool play '{"query": "jazz music", "prefer": "long"}'   # any agent tool
+  python -m tvremote link-gateway --config <duet-gateway folder> --plugin <tv_mcp.py>
+  python -m tvremote now-playing --host 192.168.1.50   # ask the TV's YouTube app what is on (read-only)
   python -m tvremote key volup
   python -m tvremote text "stranger things"
   python -m tvremote apps
@@ -16,8 +23,8 @@ import asyncio
 import json
 import sys
 
-from .config import TVConfig, default_path
-from .discovery import DiscoveryError, discover
+from .config import TVConfig, default_path, extra_path, load_all
+from .discovery import DiscoveryError, discover, scan
 from .keys import is_valid_key, normalize_key
 from .samsung import SamsungTV, TVError
 
@@ -27,7 +34,7 @@ def _tv_from_config(cfg: TVConfig) -> SamsungTV:
         cfg.token = token
         cfg.save()
 
-    return SamsungTV(cfg.host, name=cfg.name, token=cfg.token, mac=cfg.mac, on_token=save_token)
+    return SamsungTV(cfg.host, name=cfg.name, token=cfg.token, mac=cfg.mac, lan_mac=cfg.lan_mac, on_token=save_token)
 
 
 def _require_config() -> TVConfig:
@@ -39,18 +46,39 @@ def _require_config() -> TVConfig:
 
 async def run(args: argparse.Namespace) -> int:
     if args.cmd == "discover":
+        devices = await scan(args.timeout, args.interface)
+        for d in devices:
+            what = "Samsung TV" if d["kind"] == "samsung" else "other device (not controllable)"
+            print(f"{d['host']:<16} {what:<32} {d['name'] or '?'}  {d['model']}")
+        if any(d["kind"] == "samsung" for d in devices):
+            return 0
         try:
             hosts = await discover(args.timeout, args.interface)
         except DiscoveryError as e:
             print(e, file=sys.stderr)
             return 2
-        print("\n".join(hosts) if hosts else "No Samsung TVs found. Is this computer on the same Wi-Fi?")
+        print("\n".join(hosts) if hosts else "No Samsung TVs found. Is this computer on the same network?")
         return 0 if hosts else 1
 
     if args.cmd == "pair":
-        cfg = TVConfig(host=args.host, name=args.name)
-        tv = _tv_from_config(cfg)
-        info = await tv.info()
+        main_path = default_path()
+        current = TVConfig.load(main_path)
+        path = main_path
+        if current and current.host != args.host and not args.default:
+            if not args.label:
+                sys.exit(f"{main_path} already holds {current.label or current.model or current.host}. "
+                         "Add --label <name> to pair this one as another TV, or --default to replace it.")
+            path = extra_path(args.label, main_path)
+        cfg = TVConfig(host=args.host, name=args.name, label=args.label or (current.label if current and path == main_path else None))
+        tv = SamsungTV(cfg.host, name=cfg.name, on_token=lambda t: setattr(cfg, "token", t))
+        for attempt in range(3):  # the status port of some models stalls for seconds at a time
+            try:
+                info = await tv.info(timeout=3.0)
+                break
+            except TVError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(1)
         device = info.get("device") or {}
         cfg.mac = device.get("wifiMac")
         model = device.get("modelName")
@@ -62,9 +90,99 @@ async def run(args: argparse.Namespace) -> int:
         tv.pair_timeout = 60
         await tv.connect()
         await tv.close()
-        path = cfg.save()
-        print(f"Paired. Saved to {path}")
+        from .wol import lan_mac
+        cfg.lan_mac = await asyncio.to_thread(lan_mac, cfg.host)  # the address a wake-up has to go to
+        cfg.label = cfg.label or SamsungTV.clean_name(device.get("name"))
+        print(f"Paired. Saved to {cfg.save(path)}. A running hub picks it up by itself.")
         return 0
+
+    if args.cmd in ("selftest", "tool"):
+        from .selftest import full_run, probe, render
+        from .tools import Store, Tools, load_handles
+
+        if args.cmd == "selftest" and args.host:
+            # Not paired: only the questions any device on the network may ask. Nothing is sent to the TV's remote channel.
+            from .tools import TVHandle
+            tv = SamsungTV(args.host)
+            try:
+                checks = await probe(TVHandle("probe", "TV", tv), app_endpoint=False)
+            finally:
+                await tv.close()
+            print(render(f"LIVE read-only check of the TV at {args.host} (not paired, nothing on it changes)", checks))
+            return 1 if any(c["ok"] is False for c in checks) else 0
+        tools = Tools(load_handles(default_path()), store=Store(default_path().parent), config_path=default_path())
+        try:
+            if args.cmd == "tool":
+                try:
+                    out = await tools.call(args.name, json.loads(args.args))
+                except ValueError as e:
+                    sys.exit(f"bad arguments: {e}")
+                print(out)
+                return 0 if out.ok else 1
+            if not tools.tvs:
+                sys.exit(f"Not paired yet. Run: python -m tvremote pair --host <TV IP>  (config: {default_path()})")
+            failed = False
+            for h in tools.tvs.values():
+                if args.tv and args.tv not in (h.slug, h.label):
+                    continue
+                checks = await probe(h)
+                print(render(f"LIVE read-only check of {h.title} at {h.tv.host}", checks))
+                failed = failed or any(c["ok"] is False for c in checks)
+                if args.full:
+                    print(f"\nLIVE full run on {h.title} (watch the screen: the hub cannot)")
+                    for s in await full_run(tools, h, args.query, args.prefer):
+                        print(f"\n== {s['step']}: {s['tool']} {json.dumps(s['args'])}\n{json.dumps(s['report'], indent=1, ensure_ascii=False)}")
+                        failed = failed or s["report"].get("ok") is False
+            return 1 if failed else 0
+        finally:
+            await tools.stop()
+            for h in tools.tvs.values():
+                await h.tv.close()
+
+    if args.cmd == "link-gateway":
+        from pathlib import Path
+
+        from .gatewaylink import LinkError, link
+        config = Path(args.config).expanduser()
+        if config.is_dir():
+            config = config / "config.json"
+        try:
+            done = link(config, Path(args.plugin).expanduser().resolve())
+        except LinkError as e:
+            sys.exit(str(e))
+        if not done["changed"]:
+            print(f"{config} already starts this TV server. Nothing changed.")
+        else:
+            print(f"{config}: the tv upstream now starts this TV server"
+                  + (" (it was switched off)" if done["was_off"] else " (it was missing)" if done["added"] else "")
+                  + ". Restart the gateway for it to take effect.")
+        return 0
+
+    if args.cmd == "now-playing":
+        # One read-only join of YouTube's remote link: the same question the playback check asks after play.
+        from . import lounge, youtube
+        host = args.host or _require_config().host
+        tv = SamsungTV(host)
+        try:
+            dial = await tv.dial_state("YouTube")
+        finally:
+            await tv.close()
+        if not dial:
+            print(f"{host} gave no answer about its YouTube app (TV off, or no YouTube app).")
+            return 1
+        if dial["state"] != "running" or not dial.get("screen_id"):
+            print(f"YouTube on {host} is {dial['state']}; there is nothing to ask until it is open.")
+            return 1
+        try:
+            now = await lounge.watch(dial["screen_id"], None, args.seconds)
+        except lounge.LoungeError as e:
+            print(f"The link did not work: {e}")
+            return 1
+        if now.get("video"):
+            found = await asyncio.to_thread(youtube.lookup, now["video"])
+            now["title"] = (found or {}).get("title")
+        print(json.dumps(now, indent=2, ensure_ascii=False))
+        return 0 if now.get("heard") else 1
 
     if args.cmd == "hub-key":
         key_path = default_path().parent / "hub.key"
@@ -81,7 +199,8 @@ async def run(args: argparse.Namespace) -> int:
     tv = _tv_from_config(cfg)
     try:
         if args.cmd == "status":
-            print(json.dumps({"power": await tv.power_state(), **cfg.__dict__, "token": "***" if cfg.token else None}, indent=2))
+            print(json.dumps({"power": await tv.power_state(), **cfg.__dict__, "token": "***" if cfg.token else None,
+                              "other_tvs": [slug for slug, _, _ in load_all()][1:]}, indent=2))
         elif args.cmd == "key":
             for k in args.keys:
                 if not is_valid_key(k):
@@ -114,7 +233,24 @@ def main(argv: list[str] | None = None) -> None:
     d.add_argument("--interface", help="this computer's LAN IP, to avoid VPN routes (e.g. Tailscale)")
     pr = sub.add_parser("pair", help="pair with a TV (press Allow on the TV)")
     pr.add_argument("--host", required=True)
-    pr.add_argument("--name", default="TV Remote")
+    pr.add_argument("--name", default="TV Remote", help="how this hub appears in the TV's device list")
+    pr.add_argument("--label", help="what people call this TV, e.g. Bedroom (needed for a second TV)")
+    pr.add_argument("--default", action="store_true", help="replace the current default TV with this one")
+    st = sub.add_parser("selftest", help="check what the real TV answers; --full also plays something")
+    st.add_argument("--full", action="store_true", help="also change volume by one and back, play, pause, resume")
+    st.add_argument("--query", default="jazz music", help="what --full plays on YouTube")
+    st.add_argument("--prefer", default="long", choices=["auto", "long", "live"])
+    st.add_argument("--tv", help="only this TV (id or label)")
+    st.add_argument("--host", help="read-only check of a TV at this address that is not paired yet")
+    tl = sub.add_parser("tool", help="run one agent tool without the hub, e.g. tool get_state")
+    tl.add_argument("name")
+    tl.add_argument("args", nargs="?", default="{}", help="its arguments as JSON")
+    lg = sub.add_parser("link-gateway", help="point a duet-gateway's tv upstream at this installation")
+    lg.add_argument("--config", required=True, help="the gateway's config.json, or its folder")
+    lg.add_argument("--plugin", required=True, help="tv_mcp.py to start (the installer copies it next to the hub)")
+    np = sub.add_parser("now-playing", help="ask the TV's YouTube app what it is playing (read-only, joins once and leaves)")
+    np.add_argument("--host", help="the TV's address; default: the paired TV")
+    np.add_argument("--seconds", type=float, default=8.0, help="how long to listen at most")
     sub.add_parser("status", help="show power state and saved settings")
     k = sub.add_parser("key", help="press one or more keys, e.g. volup home enter")
     k.add_argument("keys", nargs="+")

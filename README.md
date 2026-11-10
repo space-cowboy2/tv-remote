@@ -6,6 +6,7 @@ Control a Samsung TV from any phone, tablet or computer, at home or away. Works 
 - **Apps:** one-tap launch of Netflix, YouTube, Prime Video and other installed apps
 - **Keyboard:** type into TV search boxes from your phone
 - **Everywhere:** an installable web app for any device, plus a native iPhone app
+- **By conversation:** "play jazz on YouTube", "quieter", "off in half an hour", "the other TV". Claude works out what you mean; the hub does it and reports what the TV confirmed ([docs/CONVERSATION.md](docs/CONVERSATION.md))
 - **Private:** no cloud and no open ports. Devices reach the home hub only through your Tailscale network, over HTTPS, with an access key.
 
 ```
@@ -37,6 +38,8 @@ Full walkthrough, including TV settings: **[docs/SETUP.md](docs/SETUP.md)**.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Components, how a button press flows, security model, tests |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Why it's built this way, and the gotchas: 2024 firmware app list, macOS Local Network and the `.app` wrapper, Tailscale address overlap |
 | [docs/API.md](docs/API.md) | Hub HTTP and WebSocket API, with curl examples |
+| [docs/CONVERSATION.md](docs/CONVERSATION.md) | Running the TV from a conversation: tools, evidence, limits, how it is tested |
+| [claude-plugin/README.md](claude-plugin/README.md) | The Claude plugin (MCP server) that connects Claude to the hub |
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | Restart, update, rotate the key, re-pair, uninstall, troubleshooting |
 | [ios/README.md](ios/README.md) | Build and install the native iPhone app |
 | [SECURITY.md](SECURITY.md) | Secrets, what's exposed, key rotation |
@@ -50,6 +53,8 @@ web/             Web app served by the hub (HTML/CSS/JS, installable, no build s
 ios/             Native SwiftUI iPhone app (XcodeGen project)
 deploy/macos/    TVRemoteHub.app wrapper + launchd installer (Mac hub)
 deploy/          systemd unit (Linux hub), plain launchd plist (reference)
+deploy/windows/  installer for a Windows hub (per-user, starts at sign-in)
+claude-plugin/   Claude plugin: MCP server, skill and command for conversational control
 tests/           pytest suite against a simulated TV; tests/e2e browser tests (Playwright)
 docs/            Documentation
 ```
@@ -66,13 +71,17 @@ tvremote apps                     # list apps
 tvremote launch 111299001912      # open YouTube
 tvremote on | off
 tvremote hub-key [--rotate]       # show or rotate the hub access key
+tvremote pair --host <IP> --label Bedroom      # a second TV
+tvremote selftest [--full]        # what the real TV answers; --full also plays something
+tvremote selftest --host IP       # the same, read-only, for a TV that is not paired yet
+tvremote tool play '{"query": "jazz music", "prefer": "long"}'   # any agent tool, without the hub
 ```
 
 ## Develop without a TV
 
 ```bash
 pip install -e '.[dev]'
-pytest                            # 44 tests against a simulated TV
+pytest                            # tests against a simulated TV (no network, no real waiting)
 python -m tvremote.devserver      # hub + web app + simulated TV at http://localhost:8080 (key: dev)
 node tests/e2e/remote.spec.mjs    # 40 browser checks (with devserver running; needs Playwright)
 ```
