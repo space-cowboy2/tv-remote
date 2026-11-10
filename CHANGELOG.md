@@ -19,7 +19,7 @@ Conversational control: the agent tools do whole jobs and answer with evidence. 
 - Optional playback check (`playback_check`, off by default): after `play`, the hub can ask the TV's YouTube
   app what is playing through YouTube's own remote link, read-only, and report the video as confirmed.
   Tested against a stand-in only; not yet run on a real TV.
-- Tests: 187, all on a simulated TV with a YouTube screen model and virtual time.
+- Tests: 188, all on a simulated TV with a YouTube screen model and virtual time.
 
 ## 0.1.0 (2026-11-05)
 
