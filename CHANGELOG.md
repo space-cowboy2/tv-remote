@@ -16,7 +16,10 @@ Conversational control: the agent tools do whole jobs and answer with evidence. 
 - Claude plugin 0.2.0 in `claude-plugin/`: local hub by default, `get_guide`, structured errors, UTF-8 on Windows.
 - Windows hub: `deploy/windows/install-hub.ps1`; file logging when there is no console. `-Pair <address>` pairs in the same run, `-Gateway <folder>` points a duet-gateway's `tv` upstream at the installation (`tvremote link-gateway`).
 - `tvremote selftest [--full]`, `tvremote selftest --host <address>` (read-only, before pairing) and `tvremote tool <name> <json>` for live checks.
-- Tests: 167, all on a simulated TV with a YouTube screen model and virtual time.
+- Optional playback check (`playback_check`, off by default): after `play`, the hub can ask the TV's YouTube
+  app what is playing through YouTube's own remote link, read-only, and report the video as confirmed.
+  Tested against a stand-in only; not yet run on a real TV.
+- Tests: 187, all on a simulated TV with a YouTube screen model and virtual time.
 
 ## 0.1.0 (2026-11-05)
 

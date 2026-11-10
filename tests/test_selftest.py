@@ -96,3 +96,43 @@ def test_link_gateway_sets_only_the_tv_upstream(tmp_path):
         link(config, tmp_path / "missing.py")
     assert console_python("C:\\venv\\Scripts\\pythonw.exe").endswith("python.exe")
     assert not console_python("C:\\venv\\Scripts\\pythonw.exe").endswith("pythonw.exe")
+
+
+def test_now_playing_command_asks_once_and_only_when_youtube_is_open(monkeypatch, capsys):
+    import json
+
+    import pytest
+
+    from tvremote import __main__ as cli
+    from tvremote import lounge
+
+    asked, dial_answer = [], {"state": "running", "screen_id": "screen-9"}
+
+    async def dial(self, name):
+        return dial_answer
+
+    async def watch(screen_id, want=None, seconds=20.0):
+        asked.append((screen_id, want, seconds))
+        return {"video": "Dx5qFachd3A", "state": "playing", "position": 12.0, "duration": None, "heard": True}
+    monkeypatch.setattr(cli.SamsungTV, "dial_state", dial)
+    monkeypatch.setattr(lounge, "watch", watch)
+    monkeypatch.setattr(youtube, "lookup", lambda video_id, timeout=8.0: {"title": "Jazz Music - Relaxing Cafe Mix"})
+    with pytest.raises(SystemExit) as done:
+        cli.main(["now-playing", "--host", "10.0.0.16", "--seconds", "5"])
+    assert done.value.code == 0 and asked == [("screen-9", None, 5.0)]
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["state"] == "playing" and shown["title"] == "Jazz Music - Relaxing Cafe Mix"
+    # YouTube closed: nothing to ask, so the link is not touched
+    asked.clear()
+    dial_answer = {"state": "stopped", "screen_id": None}
+    with pytest.raises(SystemExit) as done:
+        cli.main(["now-playing", "--host", "10.0.0.16"])
+    assert done.value.code == 1 and asked == [] and "nothing to ask" in capsys.readouterr().out
+
+    async def refused(screen_id, want=None, seconds=20.0):
+        raise lounge.LoungeError("YouTube's link answered 401")
+    dial_answer = {"state": "running", "screen_id": "screen-9"}
+    monkeypatch.setattr(lounge, "watch", refused)
+    with pytest.raises(SystemExit) as done:
+        cli.main(["now-playing", "--host", "10.0.0.16"])
+    assert done.value.code == 1 and "answered 401" in capsys.readouterr().out

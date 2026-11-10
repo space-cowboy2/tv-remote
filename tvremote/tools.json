@@ -124,7 +124,7 @@
  },
  {
   "name": "play",
-  "description": "Find something and start it on the TV, as one action: picks one specific video, turns the TV on if needed, opens the app, searches inside it, starts the first result, and checks every signal the TV gives. Takes 25-60 s. YouTube is the default service and the only one the hub can search inside; for any other service it opens the app and says the search was not done. Give query as plain search words you would type yourself (turn moods and vague asks into concrete words, e.g. \"relaxing piano music\"), or give video to play one exact YouTube video. The answer names the video chosen and separates what the TV confirmed from what was only sent; playback itself is never confirmed by the TV, so do not tell the user it is playing as a fact.",
+  "description": "Find something and start it on the TV, as one action: picks one specific video, turns the TV on if needed, opens the app, searches inside it, starts the first result, and checks every signal the TV gives. Takes 25-60 s. YouTube is the default service and the only one the hub can search inside; for any other service it opens the app and says the search was not done. Give query as plain search words you would type yourself (turn moods and vague asks into concrete words, e.g. \"relaxing piano music\"), or give video to play one exact YouTube video. The answer names the video chosen and separates what the TV confirmed from what was only sent; playback itself is confirmed only when the playback check is on for that TV and the answer says so (status verified); otherwise do not tell the user it is playing as a fact.",
   "input_schema": {
    "type": "object",
    "properties": {
@@ -555,6 +555,26 @@
    "required": [
     "name",
     "steps"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "playback_check",
+  "description": "Switch the read-only playback check for a TV on or off. Off by default. When on, play asks the TV's YouTube app, through YouTube's own remote link, what it is playing, so a started video can be reported as confirmed instead of only sent. It never starts, queues, pauses or changes anything on the TV. Call it only when the person asks for exactly this; it stays as set until changed.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "on": {
+     "type": "boolean"
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "on"
    ],
    "additionalProperties": false
   }

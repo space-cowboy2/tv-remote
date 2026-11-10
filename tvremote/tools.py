@@ -28,7 +28,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from . import discovery, youtube
+from . import discovery, lounge, youtube
 from .apps import APP_ALIASES, KNOWN_APPS, YOUTUBE_ID
 from .config import TVConfig, extra_path, load_all, slugify
 from .keys import is_valid_key, normalize_key
@@ -43,6 +43,7 @@ MAX_STEPS, MAX_REPEAT, MAX_WAIT = 60, 50, 15.0
 PLAY_DEADLINE = 170.0      # the plugin gives a call 180 s, the gateway 200 s
 WAKE_SECONDS = 40.0
 REPEAT_GUARD_SECONDS = 30  # the same play request inside this window is not run twice
+PLAYBACK_CHECK_SECONDS = 20.0  # how long the read-only YouTube link listens for the video to be running
 HISTORY = 20
 SCHEDULABLE = {"set_power", "set_volume", "playback", "play", "open_app", "send_keys", "run_macro", "switch_input"}
 PLAYBACK_KEYS = {"pause": "KEY_PAUSE", "resume": "KEY_PLAY", "stop": "KEY_STOP",
@@ -310,6 +311,7 @@ class Tools:
         self.yt_lookup = youtube.lookup
         self.scan = discovery.scan
         self.lan_mac = lan_mac
+        self.youtube_now = lounge.watch
         for h in self.tvs.values():
             h.tv.sleep = self.sleep
 
@@ -669,12 +671,14 @@ class Tools:
             if yt:
                 st["youtube_app"] = yt["state"]
             st["can_read"] = {"volume": vol is not None, "app_state": bool(yt) or bool(tv.rest_apps_ok),
-                              "search_box_opening": self._keyboard_known(h), "playback": False}
+                              "search_box_opening": self._keyboard_known(h),
+                              "playback": bool(self._signals(h).get("playback_check"))}
         playing = self.ctx.get("playing", {}).get(h.slug)
         if playing:
             st["last_started"] = {**{k: v for k, v in playing.items() if k != "at"},
                                   "minutes_ago": round((time.time() - playing.get("at", 0)) / 60, 1),
                                   "note": "what the hub last started here, not what is on screen now"}
+        st["playback_check"] = "on" if self._signals(h).get("playback_check") else "off"
         if h.doing:
             st["busy_with"] = h.doing
         return st
@@ -1082,8 +1086,7 @@ class Tools:
                 rep.extra["other_matches"] = target["others"]
             await self._ensure_on(h, rep)
             await self._youtube_on_tv(h, target, rep)
-            rep.unverified.append("That the video is actually playing: the first search result was selected, and "
-                                  "this TV reports no playback state.")
+            confirmed, summary, not_done = await self._confirm_playing(h, target, rep, exact=bool(a.get("video")))
             self.ctx.setdefault("playing", {})[h.slug] = {
                 "service": "YouTube", "id": target.get("id"), "title": target.get("title"), "channel": target.get("channel"),
                 "length": target.get("length"), "live": target.get("live"), "asked": wanted, "at": time.time()}
@@ -1091,10 +1094,61 @@ class Tools:
                 self.ctx["history"].append({"at": int(time.time()), "tool": "played", "tv": h.slug, "status": "",
                                             "summary": target.get("title") or "", "video": target["id"]})
             what = target.get("title") or f"the first YouTube result for {target['type']!r}"
-            return rep.render(f"Started {what} on YouTube; playback itself is not confirmed.", goal_confirmed=False)
+            return rep.render(summary or f"Started {what} on YouTube; playback itself is not confirmed.",
+                              goal_confirmed=confirmed, partial=not_done)
 
         return await self._run("play", a, body, busy=f"starting {wanted[:40]!r} on YouTube", busy_wait=60,
                                deadline=PLAY_DEADLINE)
+
+    async def _confirm_playing(self, h: TVHandle, target: dict[str, Any], rep: Report, *,
+                               exact: bool) -> tuple[bool, str, str]:
+        """Is the video really running? Only the TV's YouTube app knows, and it is asked only
+        when the read-only link is switched on for this TV (playback_check). Returns
+        (confirmed, summary or "", what was not done or ""); the report gets the evidence."""
+        doubt = "That the video is actually playing: "
+        if not self._signals(h).get("playback_check"):
+            rep.unverified.append(doubt + "the first search result was selected, and this TV reports no playback state.")
+            return False, "", ""
+        screen = (await h.tv.dial_state("YouTube") or {}).get("screen_id")
+        if not screen:
+            rep.unverified.append(doubt + "the playback check is on, but the TV gave no id for its YouTube app to ask.")
+            return False, "", ""
+        want = target.get("id")
+        try:
+            now = await self.youtube_now(screen, want, PLAYBACK_CHECK_SECONDS)
+        except lounge.LoungeError as e:
+            rep.unverified.append(doubt + f"the playback check could not ask YouTube on the TV ({e}).")
+            return False, "", ""
+        video, state = now.get("video"), now.get("state")
+        rep.extra["on_tv"] = {"video": video, "state": state, "position": now.get("position")}
+        what = target.get("title") or f"the first YouTube result for {target['type']!r}"
+        if video and state in lounge.MOVING and want and video != want:
+            # The first result on the TV was not the video the hub had settled on. Say what is on instead.
+            actual = await asyncio.to_thread(self.yt_lookup, video) or {}
+            rep.extra["chosen"] = rep.extra.get("playing")
+            target.update({"id": video, "title": actual.get("title"), "channel": actual.get("channel"),
+                           "length": actual.get("length"), "live": bool(actual.get("live"))})
+            rep.extra["playing"] = {k: target.get(k) for k in ("id", "title", "channel", "length", "live")}
+            named = actual.get("title") or f"another video (id {video})"
+            rep.verified.append(f"YouTube on the TV reports that it is playing {named}, not the video the hub chose.")
+            if exact:
+                return False, f"Started the first result, but it is {named}, not the video asked for.", \
+                    f"Playing the exact video asked for ({what})."
+            return False, f"YouTube on the TV is playing {named}; the hub had chosen {what}.", ""
+        if video and state == "playing":
+            at = f", {int(now['position'])} s in" if now.get("position") else ""
+            rep.verified.append(f"YouTube on the TV reports that it is playing {'this video' if want else f'video id {video}'}{at}.")
+            return True, f"Playing {what} on YouTube; the TV's YouTube app confirms it.", ""
+        if video and state == "ad":
+            rep.verified.append("YouTube on the TV reports an ad running ahead of this video.")
+            rep.unverified.append("That the video itself has started: the ad was still running when the check ended.")
+            return False, f"Started {what} on YouTube; an ad was still running when the check ended.", ""
+        if not now.get("heard"):
+            rep.unverified.append(doubt + "YouTube on the TV did not answer the playback check in time.")
+        else:
+            rep.unverified.append(doubt + f"YouTube on the TV reports {str(state)!r}"
+                                  + (f" for video id {video}." if video else " with no video loaded."))
+        return False, "", ""
 
     async def _play_elsewhere(self, a: dict[str, Any], service: str) -> Result:
         """Any app other than YouTube: open it; search inside it only with a saved sequence."""
@@ -1262,6 +1316,21 @@ class Tools:
             raise ValueError(f"seconds must be 0..{MAX_WAIT}")
         await self.sleep(float(s))
         return f"Waited {s} s."
+
+    async def t_playback_check(self, a: dict[str, Any]) -> str:
+        if not isinstance(a.get("on"), bool):
+            raise ValueError("on must be true or false")
+        try:
+            h = self._tv(a, activate=False)
+        except Fail as f:
+            return Report("").render(f.message, goal_confirmed=False, fail=f)
+        self._signals(h)["playback_check"] = a["on"]
+        self._save()
+        self._log("playback_check", h, "on" if a["on"] else "off", "")
+        return json.dumps({"ok": True, "tv": h.title, "playback_check": "on" if a["on"] else "off", "summary": (
+            "On: after play, the hub asks this TV's YouTube app what is playing and reports it. It never starts, "
+            "queues or changes anything there." if a["on"] else
+            "Off: nothing connects to this TV's YouTube app; play reports playback as not confirmed.")}, ensure_ascii=False)
 
     async def t_remember(self, a: dict[str, Any]) -> str:
         note = " ".join(str(a.get("note", "")).split())

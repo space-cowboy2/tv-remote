@@ -24,7 +24,7 @@ Claude (understands the request) ──MCP──► plugin (claude-plugin/) ─�
 
 | Tool | Does | Confirmed by |
 |---|---|---|
-| `play` | Picks one video (YouTube search on the internet), wakes the TV, restarts YouTube, opens its search box, types, starts the first result | Power state, app state, the TV's keyboard announcements and text echo. **Not** playback |
+| `play` | Picks one video (YouTube search on the internet), wakes the TV, restarts YouTube, opens its search box, types, starts the first result | Power state, app state, the TV's keyboard announcements and text echo. Playback only with the playback check on (below) |
 | `search_youtube` | Lists videos (id, title, channel, length, live) so the model can choose by a constraint | Nothing touches the TV |
 | `set_volume` | Absolute level, relative change, mute on/off | Level and mute read back from the TV (UPnP) |
 | `set_power` | On / off | The TV's own PowerState |
@@ -34,6 +34,7 @@ Claude (understands the request) ──MCP──► plugin (claude-plugin/) ─�
 | `schedule`, `cancel_schedule` | Runs a tool later; timers live in the hub and survive a restart | The scheduled tool's own report, kept in `get_state` history |
 | `get_state` | Power, volume, mute, YouTube running, active TV, what was last started, timers, recent actions | Read from the TV, plus the hub's own record |
 | `find_tvs`, `pair_tv`, `use_tv` | Other TVs: what is on the network, pairing, switching | Pairing is confirmed by the TV accepting the hub |
+| `playback_check` | Switches the read-only playback check on or off for a TV. Off by default | Kept in the hub's saved state |
 | `send_keys`, `type_text`, `run_macro`, `save_macro`, `list_macros`, `wait`, `skip_ad`, `open_twitch`, `remember` | The plain remote, saved key sequences, notes | Sent only |
 
 Old names (`get_status`, `launch_app`, `play_youtube`) still answer.
@@ -91,10 +92,40 @@ request inside 30 seconds is not run twice; everything stops at 170 seconds with
 A TV that never announces its keyboard gets all three tries once; after that the hub does one
 try and says the search box is unconfirmed.
 
+## The playback check (optional, off by default)
+
+The TV cannot say what is playing, but its YouTube app can: it tells a phone that joins it as
+a remote which video is on and whether it is playing, paused or showing an ad. With
+`playback_check` switched on for a TV, `play` ends by joining that way
+(`tvremote/lounge.py`), listening for up to 20 seconds, and leaving again. The report then
+says what the app said:
+
+- the chosen video is running: `status: verified`, "Playing ...; the TV's YouTube app confirms it";
+- another video is running: the report names that one as `playing`, keeps the hub's pick as
+  `chosen`, and for an exact video request answers `partial`;
+- an ad, a pause, nothing loaded, or no answer: said as that, and playback stays unconfirmed.
+
+What it does and does not do:
+
+- It is read-only. It joins without a video, so nothing is cast or queued, and it sends no
+  play, pause, queue or volume command. The one request it may send asks the app to repeat
+  its state. `tests/test_lounge.py` asserts what goes over the wire.
+- It is one join and one leave per `play`. Nothing connects at any other time, and with the
+  check off nothing connects at all.
+- It goes through YouTube's servers with an id the TV hands out on the local network. It is
+  not a published API and can stop working; then the report says the check could not ask.
+- A TV that reacts badly to a remote joining (some Samsung sets open Multi View when a phone
+  casts) should keep it off: `playback_check` with `on: false`.
+
+**Status: built and tested against a stand-in only.** It has not been run against a real TV.
+Whether the TV shows a notice when the hub joins, and whether the app announces its state
+the way the client expects, is only known after a first run with someone watching the screen.
+
 ## What the hub cannot do, and says so
 
-- **See the screen or playback.** No Samsung local API reports what is playing. `play` is
-  never `verified`; the model is told to say "started, can't confirm it's playing".
+- **See the screen or playback.** No Samsung local API reports what is playing. Unless the
+  playback check is on, `play` is never `verified`; the model is told to say "started, can't
+  confirm it's playing".
 - **Search inside Netflix, Prime Video and other apps.** Their keyboards are their own. `play`
   with another `service` opens the app and reports the search as not done. A sequence saved as
   `<app>_search` is used if the owner has worked one out.
@@ -102,7 +133,7 @@ try and says the search box is unconfirmed.
   `playback next` fails with `no_known_way` unless `playback_next` was saved.
 - **Other brands.** `find_tvs` lists them as not controllable.
 - **Purchases and account changes.** The guide forbids them unless asked for explicitly.
-- **Casting.** The hub never casts.
+- **Casting.** The hub never casts. The playback check joins YouTube's remote link to listen, and starts nothing.
 
 ## Acceptance criteria
 
@@ -129,6 +160,8 @@ clock that jumps instead of waiting):
 | Volume, mute, power, playback, apps, inputs, timers and their failures | `tests/test_controls.py` |
 | State, follow-ups, several TVs, pairing, restarts, damaged files, no secrets in answers | `tests/test_context.py` |
 | YouTube page reading, choice rules | `tests/test_youtube.py` |
+| The playback check: off by default and silent; confirmed, another video, an ad, a pause, no answer, link down; kept per TV and over a restart | `tests/test_playback_check.py` |
+| The read-only link's wire handling against a stand-in server: what is sent, that it leaves, that it gives up in time | `tests/test_lounge.py` |
 | The plugin end to end over real HTTP and stdio | `tests/test_plugin.py` |
 
 The simulation checks the hub's logic. It cannot show that a real TV reacts the same way.
@@ -139,7 +172,9 @@ Live, on the real TV:
 tvremote selftest --host IP   # read-only, before pairing: which signals this TV answers
 tvremote selftest             # the same for the paired TV, plus the remote-control channel and the app list
 tvremote selftest --full      # volume down and up one, play, pause, resume; prints every report
+tvremote now-playing --host IP   # one read-only question to the TV's YouTube app: what is on? (the playback check's link)
 ```
 
 Even live, a person has to look at the screen once to confirm that the right video came up,
-because the TV cannot tell the hub.
+because the TV cannot tell the hub. The playback check can stand in for that look only after
+it has itself been watched working once on that TV.

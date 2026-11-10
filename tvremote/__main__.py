@@ -8,6 +8,7 @@
   python -m tvremote selftest --host 192.168.1.50   # read-only check before pairing
   python -m tvremote tool play '{"query": "jazz music", "prefer": "long"}'   # any agent tool
   python -m tvremote link-gateway --config <duet-gateway folder> --plugin <tv_mcp.py>
+  python -m tvremote now-playing --host 192.168.1.50   # ask the TV's YouTube app what is on (read-only)
   python -m tvremote key volup
   python -m tvremote text "stranger things"
   python -m tvremote apps
@@ -157,6 +158,32 @@ async def run(args: argparse.Namespace) -> int:
                   + ". Restart the gateway for it to take effect.")
         return 0
 
+    if args.cmd == "now-playing":
+        # One read-only join of YouTube's remote link: the same question the playback check asks after play.
+        from . import lounge, youtube
+        host = args.host or _require_config().host
+        tv = SamsungTV(host)
+        try:
+            dial = await tv.dial_state("YouTube")
+        finally:
+            await tv.close()
+        if not dial:
+            print(f"{host} gave no answer about its YouTube app (TV off, or no YouTube app).")
+            return 1
+        if dial["state"] != "running" or not dial.get("screen_id"):
+            print(f"YouTube on {host} is {dial['state']}; there is nothing to ask until it is open.")
+            return 1
+        try:
+            now = await lounge.watch(dial["screen_id"], None, args.seconds)
+        except lounge.LoungeError as e:
+            print(f"The link did not work: {e}")
+            return 1
+        if now.get("video"):
+            found = await asyncio.to_thread(youtube.lookup, now["video"])
+            now["title"] = (found or {}).get("title")
+        print(json.dumps(now, indent=2, ensure_ascii=False))
+        return 0 if now.get("heard") else 1
+
     if args.cmd == "hub-key":
         key_path = default_path().parent / "hub.key"
         if args.rotate:
@@ -221,6 +248,9 @@ def main(argv: list[str] | None = None) -> None:
     lg = sub.add_parser("link-gateway", help="point a duet-gateway's tv upstream at this installation")
     lg.add_argument("--config", required=True, help="the gateway's config.json, or its folder")
     lg.add_argument("--plugin", required=True, help="tv_mcp.py to start (the installer copies it next to the hub)")
+    np = sub.add_parser("now-playing", help="ask the TV's YouTube app what it is playing (read-only, joins once and leaves)")
+    np.add_argument("--host", help="the TV's address; default: the paired TV")
+    np.add_argument("--seconds", type=float, default=8.0, help="how long to listen at most")
     sub.add_parser("status", help="show power state and saved settings")
     k = sub.add_parser("key", help="press one or more keys, e.g. volup home enter")
     k.add_argument("keys", nargs="+")

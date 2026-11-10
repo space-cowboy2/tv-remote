@@ -34,7 +34,7 @@ CALL_TIMEOUT = 180  # the hub gives its longest tool (play) 170 s
 # own before these. Everything else is in the guide (get_guide).
 INSTRUCTIONS = """Runs the household's Samsung TV(s) through a local hub. Each tool does a whole job and answers with a report: what the TV confirmed, what was only sent, what failed.
 - Call get_guide before the first TV action in a conversation. It says how to handle requests and holds this household's preferences.
-- The TV reports no playback state: never say something is playing as a fact, and never report a failed call as done."""
+- Say something is playing only when a report's status is verified (the TV alone reports no playback), and never report a failed call as done."""
 
 EXTRA_TOOLS = [{
     "name": "get_guide",

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from tvremote.fake import FakeTV
+from tvremote.lounge import LoungeError
 from tvremote.samsung import SamsungTV
 from tvremote.tools import Store, Tools, TVHandle
 from tvremote.youtube import YouTubeError
@@ -61,6 +62,33 @@ class Internet:
         return next((dict(v) for v in self.videos if v["id"] == video_id), None)
 
 
+class Lounge:
+    """YouTube's remote link as the hub sees it: what the simulated TV's YouTube app
+    says it is playing. Records every time it is asked, so a test can show that a
+    hub with the playback check off never asks."""
+
+    def __init__(self, rig: "Rig") -> None:
+        self.rig = rig
+        self.asked: list[tuple[str, str | None]] = []
+        self.down = False            # the link refuses
+        self.silent = False          # the app never answers
+        self.ad = False              # an ad runs ahead of the video
+        self.instead: str | None = None   # the first result on the TV was this video, not the one typed
+
+    async def watch(self, screen_id: str, want: str | None = None, seconds: float = 20.0) -> dict[str, Any]:
+        self.asked.append((screen_id, want))
+        if self.down:
+            raise LoungeError("YouTube's link answered 503")
+        yt = self.rig.tv.youtube
+        if self.silent:
+            return {"video": None, "state": "unknown", "position": None, "duration": None, "heard": False}
+        if not yt.playing:
+            return {"video": None, "state": "idle", "position": None, "duration": None, "heard": True}
+        state = "ad" if self.ad else "paused" if yt.paused else "playing"
+        return {"video": self.instead or yt.playing, "state": state, "position": yt.position + 3.0, "duration": None,
+                "heard": True}
+
+
 class Rig:
     """One hub (Tools) wired to one or more simulated TVs."""
 
@@ -68,6 +96,7 @@ class Rig:
         self.folder = folder
         self.fakes: list[FakeTV] = []
         self.net = Internet()
+        self.lounge = Lounge(self)
         self.tools: Tools = None  # type: ignore[assignment]
 
     async def add_tv(self, slug: str = "living-room", label: str = "Living Room", **fake_args: Any) -> FakeTV:
@@ -94,6 +123,7 @@ class Rig:
             h.tv.sleep = self.sleep
         tools.yt_search, tools.yt_lookup = self.net.search, self.net.lookup
         tools.lan_mac = lambda host: None  # the simulated TV is this computer: no neighbour entry
+        tools.youtube_now = self.lounge.watch
         return tools
 
     def restart(self) -> Tools:
