@@ -10,17 +10,32 @@
   The hub listens on 127.0.0.1:8080 only. Its settings, pairing and access key live in
   %USERPROFILE%\.config\tvremote, its log in hub.log there.
 
+  It also copies the MCP server Claude talks to (claude-plugin\server) to
+  %LOCALAPPDATA%\tvremote\plugin, so nothing depends on this clone afterwards.
+
   Run it from a clone that only you can write to, because the code will run as you:
       powershell -ExecutionPolicy Bypass -File deploy\windows\install-hub.ps1
   Run it again after `git pull` to update. Remove the hub (settings are kept):
       powershell -ExecutionPolicy Bypass -File deploy\windows\install-hub.ps1 -Uninstall
+
+.PARAMETER Pair
+  The TV's address. Pairs with it right after the install (someone has to press Allow on
+  the TV within a minute), then runs the read-only self-test.
+
+.PARAMETER Gateway
+  A duet-gateway folder or its config.json. Points its "tv" upstream at this installation,
+  by full path, so the gateway's tv_* tools work. Restart the gateway afterwards.
+
+.EXAMPLE
+  powershell -ExecutionPolicy Bypass -File deploy\windows\install-hub.ps1 -Pair 192.168.1.50 -Gateway $env:USERPROFILE\duet-gateway
 #>
-param([switch]$Uninstall)
+param([switch]$Uninstall, [string]$Pair, [string]$Gateway)
 
 $ErrorActionPreference = "Stop"
 $Name    = "TV Remote Hub"
 $Root    = Join-Path $env:LOCALAPPDATA "tvremote"
 $Venv    = Join-Path $Root "venv"
+$Plugin  = Join-Path $Root "plugin"
 $Pythonw = Join-Path $Venv "Scripts\pythonw.exe"
 $Python  = Join-Path $Venv "Scripts\python.exe"
 $Repo    = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -44,7 +59,9 @@ if ($Uninstall) {
     Stop-Hub
     Remove-ItemProperty -Path $RunKey -Name $Name -ErrorAction SilentlyContinue
     if (Test-Path $Venv) { Remove-Item -Recurse -Force $Venv }
+    if (Test-Path $Plugin) { Remove-Item -Recurse -Force $Plugin }
     Write-Host "Removed the hub. Pairing and settings are still in $env:USERPROFILE\.config\tvremote."
+    Write-Host "A duet-gateway that was pointed here (-Gateway) loses its tv_* tools until the hub is installed again."
     exit 0
 }
 
@@ -88,10 +105,40 @@ if (-not $up) {
 }
 $version = & $Python -c "import tvremote; print(tvremote.__version__)"
 Write-Host "TV Remote hub $version is running at http://127.0.0.1:8080 and will start at sign-in."
+
+# The MCP server, outside the clone, so the clone can be moved or deleted.
+New-Item -ItemType Directory -Force -Path $Plugin | Out-Null
+foreach ($f in "tv_mcp.py", "tools.json", "guide.md") {
+    Copy-Item -Force -Path (Join-Path $Repo "claude-plugin\server\$f") -Destination $Plugin
+}
+$Server = Join-Path $Plugin "tv_mcp.py"
+
+$failed = $false
+if ($Pair) {
+    Write-Host ""
+    & $Python -m tvremote pair --host $Pair
+    if ($LASTEXITCODE -ne 0) {
+        $failed = $true
+        Write-Host "Pairing did not finish. With the TV on, run this again and press Allow on the TV."
+    }
+}
 if (Test-Path (Join-Path $Config "tv.json")) {
-    Write-Host "Paired TV found. Check it with:  `"$Python`" -m tvremote selftest"
-} else {
+    Write-Host ""
+    & $Python -m tvremote selftest
+    Write-Host ""
+    Write-Host "Full check with someone watching the screen (changes volume by one and back, plays, pauses, resumes):"
+    Write-Host "  `"$Python`" -m tvremote selftest --full"
+} elseif (-not $Pair) {
     Write-Host "No TV is paired yet. With the TV on:  `"$Python`" -m tvremote discover"
     Write-Host "then:  `"$Python`" -m tvremote pair --host <TV address>   (press Allow on the TV)"
     Write-Host "or ask Claude to pair it (the pair_tv tool) while you are at the TV."
 }
+if ($Gateway) {
+    Write-Host ""
+    & $Python -m tvremote link-gateway --config $Gateway --plugin $Server
+    if ($LASTEXITCODE -ne 0) { $failed = $true }
+} else {
+    Write-Host ""
+    Write-Host "MCP server for Claude:  `"$Python`" `"$Server`""
+}
+if ($failed) { exit 1 }

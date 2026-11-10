@@ -1,6 +1,7 @@
 """Check a real TV: which signals it answers, and optionally a full run.
 
   tvremote selftest            read-only: nothing on the TV changes
+  tvremote selftest --host IP  the same for a TV that is not paired yet
   tvremote selftest --full     also changes things, then puts them back where it
                                can: volume down one and up one, plays a search on
                                YouTube, pauses and resumes it
@@ -22,8 +23,12 @@ from .samsung import TVError
 from .tools import Tools, TVHandle
 
 
-async def probe(h: TVHandle) -> list[dict[str, Any]]:
-    """Read-only checks of one TV. Each: {check, ok, detail}."""
+async def probe(h: TVHandle, app_endpoint: bool = True) -> list[dict[str, Any]]:
+    """Read-only checks of one TV. Each: {check, ok, detail}.
+
+    app_endpoint=False leaves out the per-app status request: some models never
+    answer it and their status port then stays silent for a while.
+    """
     tv = h.tv
     out: list[dict[str, Any]] = []
 
@@ -49,13 +54,16 @@ async def probe(h: TVHandle) -> list[dict[str, Any]]:
             add("remote-control channel", False, f"{type(e).__name__}: {e}")
     else:
         add("remote-control channel", None, "not paired yet (no saved token)")
-    try:
-        status = await tv.app_status(YOUTUBE_ID, timeout=3.0)
-        add("YouTube state over the app endpoint", status is not None,
-            json.dumps({k: status.get(k) for k in ("running", "visible")}) if status else
-            ("the endpoint accepts the request and never answers" if tv.rest_apps_ok is False else "no answer for this app"))
-    except TVError as e:
-        add("YouTube state over the app endpoint", False, str(e))
+    if not app_endpoint:
+        add("YouTube state over the app endpoint", None, "not asked in this check")
+    else:
+        try:
+            status = await tv.app_status(YOUTUBE_ID, timeout=3.0)
+            add("YouTube state over the app endpoint", status is not None,
+                json.dumps({k: status.get(k) for k in ("running", "visible")}) if status else
+                ("the endpoint accepts the request and never answers" if tv.rest_apps_ok is False else "no answer for this app"))
+        except TVError as e:
+            add("YouTube state over the app endpoint", False, str(e))
     dial = await tv.dial_state("YouTube")
     add("YouTube state over DIAL", dial is not None, dial["state"] if dial else "no DIAL answer")
     volume, muted = await tv.volume(), await tv.muted()

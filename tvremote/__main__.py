@@ -5,7 +5,9 @@
   python -m tvremote pair --host 192.168.1.51 --label Bedroom   # a second TV
   python -m tvremote selftest                  # what does this TV answer? (read-only)
   python -m tvremote selftest --full           # also plays something and checks every step
+  python -m tvremote selftest --host 192.168.1.50   # read-only check before pairing
   python -m tvremote tool play '{"query": "jazz music", "prefer": "long"}'   # any agent tool
+  python -m tvremote link-gateway --config <duet-gateway folder> --plugin <tv_mcp.py>
   python -m tvremote key volup
   python -m tvremote text "stranger things"
   python -m tvremote apps
@@ -88,6 +90,16 @@ async def run(args: argparse.Namespace) -> int:
         from .selftest import full_run, probe, render
         from .tools import Store, Tools, load_handles
 
+        if args.cmd == "selftest" and args.host:
+            # Not paired: only the questions any device on the network may ask. Nothing is sent to the TV's remote channel.
+            from .tools import TVHandle
+            tv = SamsungTV(args.host)
+            try:
+                checks = await probe(TVHandle("probe", "TV", tv), app_endpoint=False)
+            finally:
+                await tv.close()
+            print(render(f"LIVE read-only check of the TV at {args.host} (not paired, nothing on it changes)", checks))
+            return 1 if any(c["ok"] is False for c in checks) else 0
         tools = Tools(load_handles(default_path()), store=Store(default_path().parent), config_path=default_path())
         try:
             if args.cmd == "tool":
@@ -116,6 +128,25 @@ async def run(args: argparse.Namespace) -> int:
             await tools.stop()
             for h in tools.tvs.values():
                 await h.tv.close()
+
+    if args.cmd == "link-gateway":
+        from pathlib import Path
+
+        from .gatewaylink import LinkError, link
+        config = Path(args.config).expanduser()
+        if config.is_dir():
+            config = config / "config.json"
+        try:
+            done = link(config, Path(args.plugin).expanduser().resolve())
+        except LinkError as e:
+            sys.exit(str(e))
+        if not done["changed"]:
+            print(f"{config} already starts this TV server. Nothing changed.")
+        else:
+            print(f"{config}: the tv upstream now starts this TV server"
+                  + (" (it was switched off)" if done["was_off"] else " (it was missing)" if done["added"] else "")
+                  + ". Restart the gateway for it to take effect.")
+        return 0
 
     if args.cmd == "hub-key":
         key_path = default_path().parent / "hub.key"
@@ -174,9 +205,13 @@ def main(argv: list[str] | None = None) -> None:
     st.add_argument("--query", default="jazz music", help="what --full plays on YouTube")
     st.add_argument("--prefer", default="long", choices=["auto", "long", "live"])
     st.add_argument("--tv", help="only this TV (id or label)")
+    st.add_argument("--host", help="read-only check of a TV at this address that is not paired yet")
     tl = sub.add_parser("tool", help="run one agent tool without the hub, e.g. tool get_state")
     tl.add_argument("name")
     tl.add_argument("args", nargs="?", default="{}", help="its arguments as JSON")
+    lg = sub.add_parser("link-gateway", help="point a duet-gateway's tv upstream at this installation")
+    lg.add_argument("--config", required=True, help="the gateway's config.json, or its folder")
+    lg.add_argument("--plugin", required=True, help="tv_mcp.py to start (the installer copies it next to the hub)")
     sub.add_parser("status", help="show power state and saved settings")
     k = sub.add_parser("key", help="press one or more keys, e.g. volup home enter")
     k.add_argument("keys", nargs="+")
