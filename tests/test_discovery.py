@@ -1,5 +1,7 @@
 """Finding TVs on the network (built responses, no multicast)."""
 
+import asyncio
+
 from tvremote import discovery as d
 
 Q60B = (b"HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=1800\r\nLOCATION: http://10.0.0.16:9197/dmr\r\n"
@@ -83,7 +85,13 @@ def test_a_search_that_fails_everywhere_is_an_error(monkeypatch):
         d._ssdp_scan(0.1, None)
 
 
-def test_local_addresses_and_a_real_search_do_not_raise():
+def test_local_addresses_and_a_real_search_on_this_machine():
     addresses = d.local_addresses()
     assert all(not a.startswith("127.") for a in addresses)
-    assert isinstance(d._search_from(None, 0.05), list)   # nothing answers in a test run; it must just come back
+    # Nothing answers in a test run. The real socket code must come back with a list, or with the one error a
+    # machine with no route for multicast gives (a CI runner), which the scan turns into "found nothing".
+    try:
+        assert isinstance(d._search_from(None, 0.05), list)
+    except OSError:
+        pass
+    assert isinstance(asyncio.run(d.scan(0.05)), list)   # the scan never raises: a blocked network is an empty list
