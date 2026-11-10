@@ -180,8 +180,19 @@ def test_pair_uses_model_when_modelname_is_zero(monkeypatch, tmp_path):
 
     monkeypatch.setenv("TVREMOTE_CONFIG", str(tmp_path / "tv.json"))
 
-    async def info(self):
+    calls = []
+
+    async def info(self, timeout=None):
+        calls.append(timeout)
+        if len(calls) == 1:  # the status port stalls now and then: pairing tries again
+            raise TVUnreachable("TV info unavailable: timed out")
         return {"device": {"modelName": "0", "model": "24_PTM_QD_T09", "wifiMac": "11:22:33:44:55:66"}}
+
+    async def no_wait(seconds):
+        return None
+
+    monkeypatch.setattr(aio, "sleep", no_wait)
+    monkeypatch.setattr("tvremote.wol.lan_mac", lambda host: "aa:bb:cc:00:11:22")
 
     async def noop(self):
         return None
@@ -193,6 +204,7 @@ def test_pair_uses_model_when_modelname_is_zero(monkeypatch, tmp_path):
     assert aio.run(cli.run(args)) == 0
     cfg = TVConfig.load(tmp_path / "tv.json")
     assert cfg.model == "24_PTM_QD_T09" and cfg.mac == "11:22:33:44:55:66"
+    assert cfg.lan_mac == "aa:bb:cc:00:11:22" and len(calls) == 2
     # a second TV needs a name and goes into its own file; the first stays the default
     other = cli.argparse.Namespace(cmd="pair", host="10.0.0.3", name="TV Remote", label=None, default=False)
     with pytest.raises(SystemExit):

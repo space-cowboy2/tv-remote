@@ -6,7 +6,7 @@ import pytest
 
 from tvremote.config import TVConfig, extra_path, load_all, slugify
 from tvremote.fake import FakeTV
-from tvremote.tools import Store, Tools
+from tvremote.tools import Store, Tools, load_handles
 
 from sim import Rig, said
 
@@ -140,6 +140,30 @@ async def test_pairing_from_the_conversation(unpaired):
     r = json.loads(await tools.call("set_volume", {"level": 9}))  # usable at once, no restart
     assert r["ok"] and fake.volume == 9
     assert fake.token not in json.dumps(r) + json.dumps(json.loads(await tools.call("get_state", {})))
+
+
+async def test_pairing_notes_the_address_a_wake_up_needs_and_learns_it_later_too(unpaired):
+    tools, fake, folder = unpaired
+    tools.lan_mac = lambda host: "a0:d7:f3:01:02:03"
+    await tools.call("pair_tv", {"host": "127.0.0.1", "label": "Living Room"})
+    saved = TVConfig.load(folder / "tv.json")
+    assert saved.lan_mac == "a0:d7:f3:01:02:03" and saved.mac == fake.mac
+    assert tools.tvs["living-room"].tv.wake_macs == ["a0:d7:f3:01:02:03", fake.mac]
+    # A TV saved without it (paired by an older version) gets it the first time a new hub sees it on.
+    saved.lan_mac = None
+    saved.save(folder / "tv.json")
+    later = Tools(load_handles(folder / "tv.json", **tools.tv_args), store=Store(folder), config_path=folder / "tv.json",
+                  tv_args=tools.tv_args)
+    try:
+        assert later.tvs["living-room"].tv.lan_mac is None
+        later.lan_mac = lambda host: "a0:d7:f3:0a:0b:0c"
+        r = json.loads(await later.call("set_power", {"state": "on"}))
+        assert r["ok"] and TVConfig.load(folder / "tv.json").lan_mac == "a0:d7:f3:0a:0b:0c"
+        assert TVConfig.load(folder / "tv.json").token == fake.token   # nothing else in the file changed
+    finally:
+        await later.stop()
+        for h in later.tvs.values():
+            await h.tv.close()
 
 
 async def test_pairing_when_nobody_presses_allow(unpaired):

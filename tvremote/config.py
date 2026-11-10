@@ -24,7 +24,8 @@ def default_path() -> Path:
 @dataclass
 class TVConfig:
     host: str
-    mac: str | None = None
+    mac: str | None = None      # what the TV reports (its Wi-Fi address)
+    lan_mac: str | None = None  # the address the hub's network sees; differs for a TV on a cable
     token: str | None = None
     name: str = "TV Remote"
     model: str | None = None

@@ -237,3 +237,73 @@ async def test_plain_remote_tools_say_they_only_sent(rig):
     await rig.tv.drop_connections()
     r = await rig.call("send_keys", keys=[{"key": "up"}])
     assert not r["ok"] and r["failed"]["kind"] == "tv_unreachable"
+
+
+# ------------------------------------------------- waking a TV on a real network
+
+def test_the_address_a_wake_up_goes_to_is_read_from_the_neighbour_table():
+    from tvremote.wol import lan_mac, parse_neighbours
+
+    windows = ("\r\nInterface: 100.110.24.18 --- 0x7\r\n  Internet Address      Physical Address      Type\r\n"
+               "  100.110.24.1          4c-5e-0c-aa-bb-cc     dynamic\r\n  100.110.24.16         a0-d7-f3-01-02-03     dynamic\r\n"
+               "  100.110.24.160        11-22-33-44-55-66     dynamic\r\n")
+    assert parse_neighbours(windows, "100.110.24.16") == "a0:d7:f3:01:02:03"   # not .160, not the router
+    mac_os = "? (192.168.1.50) at a0:d7:f3:1:2:3 on en0 ifscope [ethernet]\n"
+    assert parse_neighbours(mac_os, "192.168.1.50") == "a0:d7:f3:01:02:03"      # macOS drops leading zeros
+    linux = ("IP address       HW type     Flags       HW address            Mask     Device\n"
+             "192.168.1.50     0x1         0x2         a0:d7:f3:01:02:03     *        eth0\n"
+             "192.168.1.51     0x1         0x0         00:00:00:00:00:00     *        eth0\n")
+    assert parse_neighbours(linux, "192.168.1.50") == "a0:d7:f3:01:02:03"
+    assert parse_neighbours(linux, "192.168.1.51") is None                      # an entry that never resolved
+    assert parse_neighbours("? (192.168.1.50) at (incomplete) on en0\n", "192.168.1.50") is None
+    assert lan_mac("203.0.113.9") is None                                       # unknown host: None, never an error
+
+
+def test_a_wake_up_leaves_from_every_local_address(monkeypatch):
+    from tvremote import wol
+
+    sent = []
+
+    class Sock:
+        def __init__(self, *a):
+            self.source = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def setsockopt(self, *a):
+            pass
+
+        def bind(self, addr):
+            if addr[0] == "100.111.6.22":
+                raise OSError(10049, "cannot bind")   # one network refusing does not stop the others
+            self.source = addr[0]
+
+        def sendto(self, packet, addr):
+            sent.append((self.source, addr, packet))
+
+    monkeypatch.setattr(wol.socket, "socket", Sock)
+    monkeypatch.setattr(wol, "_local_addresses", lambda: ["100.110.24.18", "100.111.6.22"])
+    wol.send_wol("a0:d7:f3:01:02:03", repeat=1)
+    assert [s[0] for s in sent] == [None, "100.110.24.18"]
+    assert all(s[1] == ("255.255.255.255", 9) and s[2] == wol.magic_packet("a0-d7-f3-01-02-03") for s in sent)
+
+
+async def test_a_tv_on_a_cable_is_woken_by_the_address_the_network_sees(rig, monkeypatch):
+    """The TV reports its Wi-Fi address; on a cable only the other one wakes it."""
+    cable = "a0:d7:f3:01:02:03"
+    rig.tv.power = "off"
+    rig.tools.tvs["living-room"].tv.lan_mac = cable
+    sent = []
+
+    def wake(mac):
+        sent.append(mac)
+        if mac == cable and sent.count(cable) == 2:
+            rig.tv.power = "on"
+    monkeypatch.setattr("tvremote.samsung.send_wol", wake)
+    r = await rig.call("set_power", state="on")
+    assert r["ok"] and r["status"] == "verified"
+    assert sent[:2] == [cable, rig.tv.mac]   # both, the network's own first

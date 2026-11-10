@@ -33,7 +33,7 @@ def _tv_from_config(cfg: TVConfig) -> SamsungTV:
         cfg.token = token
         cfg.save()
 
-    return SamsungTV(cfg.host, name=cfg.name, token=cfg.token, mac=cfg.mac, on_token=save_token)
+    return SamsungTV(cfg.host, name=cfg.name, token=cfg.token, mac=cfg.mac, lan_mac=cfg.lan_mac, on_token=save_token)
 
 
 def _require_config() -> TVConfig:
@@ -70,7 +70,14 @@ async def run(args: argparse.Namespace) -> int:
             path = extra_path(args.label, main_path)
         cfg = TVConfig(host=args.host, name=args.name, label=args.label or (current.label if current and path == main_path else None))
         tv = SamsungTV(cfg.host, name=cfg.name, on_token=lambda t: setattr(cfg, "token", t))
-        info = await tv.info()
+        for attempt in range(3):  # the status port of some models stalls for seconds at a time
+            try:
+                info = await tv.info(timeout=3.0)
+                break
+            except TVError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(1)
         device = info.get("device") or {}
         cfg.mac = device.get("wifiMac")
         model = device.get("modelName")
@@ -82,6 +89,8 @@ async def run(args: argparse.Namespace) -> int:
         tv.pair_timeout = 60
         await tv.connect()
         await tv.close()
+        from .wol import lan_mac
+        cfg.lan_mac = await asyncio.to_thread(lan_mac, cfg.host)  # the address a wake-up has to go to
         cfg.label = cfg.label or SamsungTV.clean_name(device.get("name"))
         print(f"Paired. Saved to {cfg.save(path)}. A running hub picks it up by itself.")
         return 0

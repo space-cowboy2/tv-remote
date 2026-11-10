@@ -93,6 +93,7 @@ class Rig:
         for h in tools.tvs.values():
             h.tv.sleep = self.sleep
         tools.yt_search, tools.yt_lookup = self.net.search, self.net.lookup
+        tools.lan_mac = lambda host: None  # the simulated TV is this computer: no neighbour entry
         return tools
 
     def restart(self) -> Tools:

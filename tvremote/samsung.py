@@ -90,6 +90,7 @@ class SamsungTV:
         dial_port: int = 8080,
         upnp_port: int = 9197,
         mac: str | None = None,
+        lan_mac: str | None = None,
         on_token: Callable[[str], None] | None = None,
         pair_timeout: float = 30.0,
         request_timeout: float = 5.0,
@@ -103,6 +104,7 @@ class SamsungTV:
         self.dial_port = dial_port
         self.upnp_port = upnp_port
         self.mac = mac
+        self.lan_mac = lan_mac
         self.on_token = on_token
         self.pair_timeout = pair_timeout
         self.request_timeout = request_timeout
@@ -626,6 +628,15 @@ class SamsungTV:
         self.power_source = "none"
         return "off"
 
+    @property
+    def wake_macs(self) -> list[str]:
+        """Addresses a wake-up is sent to: the one this network sees first, then the one the TV reports."""
+        out: list[str] = []
+        for mac in (self.lan_mac, self.mac):
+            if mac and mac.lower().replace("-", ":") not in [m.lower().replace("-", ":") for m in out]:
+                out.append(mac)
+        return out
+
     async def mac_address(self) -> str | None:
         if self.mac:
             return self.mac
@@ -645,17 +656,22 @@ class SamsungTV:
         state = await self.power_state()
         if state == "on":
             return True
-        mac = self.mac
-        if not mac:
+        macs = self.wake_macs
+        if not macs:
             raise TVError("MAC address unknown; run `pair` while the TV is on to save it")
+
+        def wake() -> None:
+            for mac in macs:
+                send_wol(mac)
+
         if state == "standby":
             # Network standby: the API is up but the screen is off.
             try:
                 await self.send_key("KEY_POWER")
             except TVError:
-                send_wol(mac)
+                wake()
         else:
-            send_wol(mac)
+            wake()
         # Time spent probing counts too: a TV that is off takes seconds per probe.
         waited = 0.0
         while waited < wait:
@@ -664,7 +680,7 @@ class SamsungTV:
             if await self.power_state(quick=True) == "on":
                 return True
             waited += 1 + (time.monotonic() - started)
-            send_wol(mac)
+            wake()
         return False
 
     async def wait_ready(self, wait: float = 12.0) -> bool:

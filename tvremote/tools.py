@@ -33,6 +33,7 @@ from .apps import APP_ALIASES, KNOWN_APPS, YOUTUBE_ID
 from .config import TVConfig, extra_path, load_all, slugify
 from .keys import is_valid_key, normalize_key
 from .samsung import PairingDenied, PairingTimeout, SamsungTV, TVError, TVUnreachable
+from .wol import lan_mac
 
 SCHEMAS: list[dict[str, Any]] = json.loads((Path(__file__).with_name("tools.json")).read_text(encoding="utf-8"))
 GUIDE: str = (Path(__file__).with_name("guide.md")).read_text(encoding="utf-8")
@@ -208,6 +209,8 @@ class TVHandle:
         self.doing: str | None = None
         self.apps: list[dict[str, Any]] = []
         self.apps_at = 0.0
+        self.save_lan_mac: Any = None  # set for a saved TV: writes the address the network sees to its file
+        self.lan_mac_checked = False
 
     @property
     def title(self) -> str:
@@ -221,8 +224,14 @@ def handle_from_config(slug: str, cfg: TVConfig, path: Path, **tv_args: Any) -> 
         cfg.token = token
         cfg.save(path)
 
-    tv = SamsungTV(cfg.host, name=cfg.name, token=cfg.token, mac=cfg.mac, on_token=save_token, **tv_args)
-    return TVHandle(slug, cfg.label or cfg.model or "TV", tv, model=cfg.model)
+    def save_lan_mac(mac: str) -> None:
+        cfg.lan_mac = mac
+        cfg.save(path)
+
+    tv = SamsungTV(cfg.host, name=cfg.name, token=cfg.token, mac=cfg.mac, lan_mac=cfg.lan_mac, on_token=save_token, **tv_args)
+    h = TVHandle(slug, cfg.label or cfg.model or "TV", tv, model=cfg.model)
+    h.save_lan_mac = save_lan_mac
+    return h
 
 
 def load_handles(config_path: Path, **tv_args: Any) -> list[TVHandle]:
@@ -300,6 +309,7 @@ class Tools:
         self.yt_search = youtube.search
         self.yt_lookup = youtube.lookup
         self.scan = discovery.scan
+        self.lan_mac = lan_mac
         for h in self.tvs.values():
             h.tv.sleep = self.sleep
 
@@ -542,11 +552,27 @@ class Tools:
                                 "(Settings > General > Network > Expert Settings).")
         rep.verified.append("The TV is on (it reports PowerState on)." if tv.power_source == "tv" else
                             "The TV is on (its app and volume services answer, though its status port did not).")
+        await self._learn_lan_mac(h)
         if not await tv.wait_ready(12.0 if woke else 4.0):
             raise Fail("tv_unreachable", "The TV is on, but its remote-control channel does not accept a connection.",
                        hint="This usually clears within a minute of the TV waking up. Try again.")
         if woke:
             await self.sleep(4)  # the home screen ignores launches for a moment after waking
+
+    async def _learn_lan_mac(self, h: TVHandle) -> None:
+        """Once per run, while the TV is on: note the address this network has for it. That is the one a
+        wake-up must go to, and for a TV on a cable it is not the one the TV reports."""
+        if h.lan_mac_checked:
+            return
+        h.lan_mac_checked = True
+        try:
+            mac = await asyncio.to_thread(self.lan_mac, h.tv.host)
+            if mac and mac != h.tv.lan_mac:
+                h.tv.lan_mac = mac
+                if h.save_lan_mac:
+                    h.save_lan_mac(mac)
+        except Exception:  # a wake-up address is a nicety here; never fail the request over it
+            pass
 
     async def _apps(self, h: TVHandle, refresh: bool = False) -> list[dict[str, Any]]:
         if refresh or not h.apps or time.monotonic() - h.apps_at > 600:
@@ -725,11 +751,16 @@ class Tools:
         got: dict[str, str] = {}
         tv = SamsungTV(host, name=cfg.name, on_token=lambda t: got.update(token=t), pair_timeout=45.0, **self.tv_args)
         try:
-            try:
-                device = (await tv.info()).get("device") or {}
-            except TVUnreachable as e:
-                raise Fail("tv_unreachable", f"Nothing answers as a Samsung TV at {host}.",
-                           hint="The TV must be on and on this network. find_tvs shows what is there.") from e
+            device = None
+            for attempt in range(3):  # the status port of some models stalls for seconds at a time
+                try:
+                    device = (await tv.info(timeout=3.0)).get("device") or {}
+                    break
+                except TVUnreachable as e:
+                    if attempt == 2:
+                        raise Fail("tv_unreachable", f"Nothing answers as a Samsung TV at {host}.",
+                                   hint="The TV must be on and on this network. find_tvs shows what is there.") from e
+                    await self.sleep(1)
             model = device.get("modelName")
             if not model or model == "0":  # some 2024 models report "0"
                 model = device.get("model") or device.get("name")
@@ -750,6 +781,10 @@ class Tools:
         finally:
             await tv.close()
         cfg.token = got.get("token") or cfg.token
+        try:
+            cfg.lan_mac = await asyncio.to_thread(self.lan_mac, host)
+        except Exception:
+            cfg.lan_mac = None
         primary = TVConfig.load(self.config_path)
         if known:
             path = next((p for s, _, p in load_all(self.config_path) if s == known.slug), self.config_path)
