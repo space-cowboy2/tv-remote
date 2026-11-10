@@ -188,10 +188,18 @@ def test_pair_uses_model_when_modelname_is_zero(monkeypatch, tmp_path):
     monkeypatch.setattr(SamsungTV, "info", info)
     monkeypatch.setattr(SamsungTV, "connect", noop)
     monkeypatch.setattr(SamsungTV, "close", noop)
-    args = cli.argparse.Namespace(cmd="pair", host="10.0.0.2", name="TV Remote")
+    args = cli.argparse.Namespace(cmd="pair", host="10.0.0.2", name="TV Remote", label=None, default=False)
     assert aio.run(cli.run(args)) == 0
     cfg = TVConfig.load(tmp_path / "tv.json")
     assert cfg.model == "24_PTM_QD_T09" and cfg.mac == "11:22:33:44:55:66"
+    # a second TV needs a name and goes into its own file; the first stays the default
+    other = cli.argparse.Namespace(cmd="pair", host="10.0.0.3", name="TV Remote", label=None, default=False)
+    with pytest.raises(SystemExit):
+        aio.run(cli.run(other))
+    other.label = "Bedroom"
+    assert aio.run(cli.run(other)) == 0
+    assert TVConfig.load(tmp_path / "tv.json").host == "10.0.0.2"
+    assert TVConfig.load(tmp_path / "tv-bedroom.json").host == "10.0.0.3"
 
 
 def test_clean_name_unescapes_twice():

@@ -38,6 +38,25 @@ Wrong keys: `401`. More than 5 failed logins from one client in 5 minutes: `429`
 | POST | `/api/power` | `{"state": "on" \| "off"}` | `{"ok": true, "power": "on"}` |
 | WS | `/api/ws` | see below | |
 
+## Agent tools `/api/tools`
+
+What the Claude plugin and other assistants call. Background: [CONVERSATION.md](CONVERSATION.md).
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/tools` | | `{"tools": [{"name", "description", "input_schema"}], "notes": "...", "guide": "..."}` |
+| POST | `/api/tools/<name>` | the tool's arguments as a JSON object | `{"result": "<text or JSON report>", "ok": true \| false}` |
+
+A tool that could not reach its outcome still answers `200`: `ok` is `false` and `result` is a report with `failed.kind`. `404` unknown tool, `422` invalid arguments. These calls can take up to 170 s (`play`).
+
+```bash
+curl -s -H "$H" -X POST $U/api/tools/play -d '{"query": "jazz music", "prefer": "long"}'
+curl -s -H "$H" -X POST $U/api/tools/set_volume -d '{"change": -3}'
+curl -s -H "$H" -X POST $U/api/tools/schedule -d '{"in_minutes": 30, "tool": "set_power", "args": {"state": "off"}}'
+```
+
+The remote-control endpoints above act on the default TV (the one in `tv.json`) and answer `503` while no TV is paired.
+
 ## WebSocket `/api/ws`
 
 Low-latency channel for button presses. Authenticate with the cookie or a Bearer header on the handshake (unauthenticated sockets are closed with code `4401`).

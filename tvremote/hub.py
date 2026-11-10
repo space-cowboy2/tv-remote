@@ -17,6 +17,8 @@ Environment
                       served over HTTPS, e.g. behind `tailscale serve`)
   TVREMOTE_TRUSTED_PROXIES  proxies whose X-Forwarded-* headers are trusted
                       (default 127.0.0.1, which covers `tailscale serve`)
+  TVREMOTE_LOG_FILE   write the log to this file instead of the console
+                      (automatic, as hub.log next to tv.json, when there is no console)
 """
 
 from __future__ import annotations
@@ -25,9 +27,11 @@ import hmac
 import logging
 import os
 import secrets
+import sys
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, Literal
 
@@ -315,10 +319,26 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
     return app
 
 
+def setup_logging() -> bool:
+    """Log to the console, or to a file when there is none. Returns True when
+    logging went to a file. A hub started without a window (pythonw on Windows)
+    has no console, so it writes hub.log next to tv.json; TVREMOTE_LOG_FILE picks
+    another place. Lines hold requests and outcomes, never keys or tokens."""
+    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    log_file = os.environ.get("TVREMOTE_LOG_FILE") or (str(default_path().parent / "hub.log") if sys.stderr is None else "")
+    if not log_file:
+        logging.basicConfig(level=logging.INFO, format=fmt)
+        return False
+    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(log_file, maxBytes=1_000_000, backupCount=2, encoding="utf-8")
+    logging.basicConfig(level=logging.INFO, format=fmt, handlers=[handler])
+    return True
+
+
 def main() -> None:
     import uvicorn
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    to_file = setup_logging()
     app = create_app()
     uvicorn.run(
         app,
@@ -327,6 +347,7 @@ def main() -> None:
         proxy_headers=True,
         forwarded_allow_ips=os.environ.get("TVREMOTE_TRUSTED_PROXIES", "127.0.0.1"),
         log_level="info",
+        **({"log_config": None} if to_file else {}),  # uvicorn's own config writes to the console
     )
 
 

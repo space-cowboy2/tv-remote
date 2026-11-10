@@ -74,6 +74,21 @@ Why the app wrapper is needed: [DECISIONS.md](DECISIONS.md#macos-local-network-p
 
 Or install the native iPhone app: see [ios/README.md](../ios/README.md).
 
+## Windows hub instead
+
+On an always-on Windows PC on the same network as the TV, with Python 3.11+ and git:
+
+```powershell
+git clone https://github.com/space-cowboy2/tv-remote.git $env:USERPROFILE\tv-remote
+powershell -ExecutionPolicy Bypass -File $env:USERPROFILE\tv-remote\deploy\windows\install-hub.ps1
+```
+
+The script installs the hub into `%LOCALAPPDATA%\tvremote\venv`, starts it without a window on `127.0.0.1:8080`, and registers it to start at every sign-in (no administrator rights). Settings, pairing and the access key are in `%USERPROFILE%\.config\tvremote`, the log in `hub.log` there. Clone into a folder only you can write to: the code runs as you.
+
+Pair with the TV on, either from a terminal (`%LOCALAPPDATA%\tvremote\venv\Scripts\python -m tvremote pair --host <TV IP>`) or by asking Claude to pair it while you are at the TV (`pair_tv`). The running hub picks the TV up by itself.
+
+To let Claude run the TV on that PC, point an MCP client at `claude-plugin\server\tv_mcp.py` in the clone (see [claude-plugin/README.md](../claude-plugin/README.md)).
+
 ## Raspberry Pi / Linux hub instead
 
 ```bash
