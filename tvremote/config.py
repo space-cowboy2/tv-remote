@@ -59,19 +59,23 @@ def extra_path(label: str, path: Path | None = None) -> Path:
     return (path or default_path()).with_name(f"tv-{slugify(label)}.json")
 
 
-def load_all(path: Path | None = None) -> list[tuple[str, TVConfig]]:
-    """Every paired TV as (id, config). The TV in tv.json comes first and is the default."""
+def load_all(path: Path | None = None) -> list[tuple[str, TVConfig, Path]]:
+    """Every paired TV as (id, config, its file). The TV in tv.json comes first
+    and is the default."""
     p = path or default_path()
-    found: list[tuple[str, TVConfig]] = []
-    primary = TVConfig.load(p)
+    found: list[tuple[str, TVConfig, Path]] = []
+    try:
+        primary = TVConfig.load(p)
+    except (ValueError, TypeError):
+        primary = None
     if primary:
-        found.append((slugify(primary.label or "tv"), primary))
+        found.append((slugify(primary.label or "tv"), primary, p))
     for extra in sorted(p.parent.glob("tv-*.json")):
         try:
             cfg = TVConfig.load(extra)
         except (ValueError, TypeError):
             continue
         slug = extra.stem[3:]
-        if cfg and slug and slug not in {s for s, _ in found}:
-            found.append((slug, cfg))
+        if cfg and slug and slug not in {s for s, _, _ in found}:
+            found.append((slug, cfg, extra))
     return found

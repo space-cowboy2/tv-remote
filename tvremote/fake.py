@@ -20,6 +20,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -201,10 +202,16 @@ class FakeTV:
         return time.monotonic() - self._t0 + self.clock
 
     async def start(self, ws_port: int = 0, info_port: int = 0) -> "FakeTV":
-        self._server = await serve(self._handle, "127.0.0.1", ws_port)
+        self._server = await serve(self._handle, "127.0.0.1", ws_port, process_request=self._gate)
         self.ws_port = self._server.sockets[0].getsockname()[1]
         self._start_http(info_port)
         return self
+
+    def _gate(self, connection: ServerConnection, request: Any) -> Any:
+        """A TV that is off does not take remote-control connections."""
+        if self.power == "off":
+            return connection.respond(HTTPStatus.SERVICE_UNAVAILABLE, "off\n")
+        return None
 
     async def stop(self) -> None:
         if self._server:

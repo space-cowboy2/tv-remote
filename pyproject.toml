@@ -20,7 +20,7 @@ build-backend = "setuptools.build_meta"
 packages = ["tvremote"]
 
 [tool.setuptools.package-data]
-tvremote = ["tools.json"]
+tvremote = ["tools.json", "guide.md"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

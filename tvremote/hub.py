@@ -2,6 +2,10 @@
 
 Run:  tvremote-hub            (or: python -m tvremote.hub)
 
+The hub starts even when no TV is paired yet: the agent tools then answer that
+plainly, and a TV paired later (`tvremote pair`, or the pair_tv tool) is picked
+up without a restart. More TVs live next to tv.json as tv-<name>.json.
+
 Environment
   TVREMOTE_CONFIG     path to tv.json from `tvremote pair` (default ~/.config/tvremote/tv.json)
   TVREMOTE_HUB_KEY    access key clients must present. If unset, one is generated
@@ -17,7 +21,6 @@ Environment
 
 from __future__ import annotations
 
-import asyncio
 import hmac
 import logging
 import os
@@ -34,10 +37,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .config import TVConfig, default_path
+from .config import default_path
 from .keys import KEY_GROUPS, is_valid_key, normalize_key
 from .samsung import SamsungTV, TVError, TVUnreachable
-from .tools import Store, Tools, UnknownTool
+from .tools import Fail, Store, Tools, TVHandle, UnknownTool, load_handles
 
 log = logging.getLogger("tvremote.hub")
 COOKIE = "tvremote_session"
@@ -106,31 +109,35 @@ class LoginBody(BaseModel):
 # ------------------------------------------------------------------------ app
 
 def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
-               config_path: Path | None = None, web_dir: str | None = None) -> FastAPI:
+               config_path: Path | None = None, web_dir: str | None = None,
+               tv_args: dict[str, Any] | None = None) -> FastAPI:
+    """tv: use exactly this TV (tests, embedding). Without it the hub serves the
+    TVs saved next to config_path, including ones paired while it runs."""
     config_path = config_path or default_path()
-    if tv is None:
-        cfg = TVConfig.load(config_path)
-        if not cfg:
-            raise SystemExit(f"No paired TV in {config_path}. Run `tvremote pair --host <TV IP>` first.")
-
-        def save_token(token: str) -> None:
-            cfg.token = token
-            cfg.save(config_path)
-
-        tv = SamsungTV(cfg.host, name=cfg.name, token=cfg.token, mac=cfg.mac, on_token=save_token)
+    store = Store(config_path.parent)
+    if tv is not None:
+        tools = Tools([TVHandle("tv", "TV", tv)], store=store)
+    else:
+        tools = Tools(load_handles(config_path, **(tv_args or {})), store=store, config_path=config_path,
+                      tv_args=tv_args)
+        if not tools.tvs:
+            log.warning("No paired TV in %s yet. Pair one with `tvremote pair --host <TV IP>`.", config_path)
     key = access_key or load_or_create_key(config_path)
     limiter = LoginLimiter()
     apps_cache: dict[str, Any] = {"at": 0.0, "apps": []}
-    tv_lock = asyncio.Lock()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        try:
-            await tv.connect()
-        except TVError as e:
-            log.warning("TV not connected at startup (%s); will retry on first command", e)
+        for h in tools.tvs.values():
+            try:
+                await h.tv.connect()
+            except TVError as e:
+                log.warning("%s not connected at startup (%s); will retry on first command", h.title, e)
+        tools.start()
         yield
-        await tv.close()
+        await tools.stop()
+        for h in tools.tvs.values():
+            await h.tv.close()
 
     app = FastAPI(title="TV Remote Hub", version=__version__, lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
@@ -161,6 +168,10 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
     @app.exception_handler(TVError)
     async def _tv_error(_: Request, e: TVError) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=502)
+
+    @app.exception_handler(Fail)
+    async def _fail(_: Request, e: Fail) -> JSONResponse:
+        return JSONResponse({"detail": e.message, "kind": e.kind}, status_code=503)
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
@@ -196,12 +207,12 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
     async def health() -> dict[str, Any]:
         return {"ok": True, "version": __version__}
 
-    # -- protected
+    # -- protected (the remote-control routes act on the default TV)
     auth = [Depends(require_auth)]
 
     @app.get("/api/status", dependencies=auth)
     async def get_status() -> dict[str, Any]:
-        return {"power": await tv.power_state(), "connected": tv.connected, "host": tv.host}
+        return {"power": await tools.tv.power_state(), "connected": tools.tv.connected, "host": tools.tv.host}
 
     @app.get("/api/keys", dependencies=auth)
     async def get_keys() -> dict[str, list[str]]:
@@ -211,50 +222,49 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
     async def press(body: KeyBody) -> dict[str, bool]:
         if not is_valid_key(body.key):
             raise HTTPException(422, f"unknown key {normalize_key(body.key)}")
-        async with tv_lock:
-            await tv.send_key(body.key, body.cmd)
+        async with tools.lock:
+            await tools.tv.send_key(body.key, body.cmd)
         return {"ok": True}
 
     @app.post("/api/text", dependencies=auth)
     async def text(body: TextBody) -> dict[str, bool]:
-        async with tv_lock:
-            await tv.send_text(body.text, submit=body.submit)
+        async with tools.lock:
+            await tools.tv.send_text(body.text, submit=body.submit)
         return {"ok": True}
 
     @app.get("/api/apps", dependencies=auth)
     async def apps(refresh: bool = False) -> list[dict[str, Any]]:
         if refresh or time.monotonic() - apps_cache["at"] > 600 or not apps_cache["apps"]:
-            async with tv_lock:
-                apps_cache["apps"] = sorted(await tv.list_apps(), key=lambda a: (a["name"] or "").lower())
+            async with tools.lock:
+                apps_cache["apps"] = sorted(await tools.tv.list_apps(), key=lambda a: (a["name"] or "").lower())
             apps_cache["at"] = time.monotonic()
         return apps_cache["apps"]
 
     @app.post("/api/launch", dependencies=auth)
     async def launch(body: LaunchBody) -> dict[str, bool]:
-        async with tv_lock:
-            await tv.launch_app(body.app_id)
+        async with tools.lock:
+            await tools.tv.launch_app(body.app_id)
         return {"ok": True}
 
     @app.post("/api/power", dependencies=auth)
     async def power(body: PowerBody) -> dict[str, Any]:
         if body.state == "on":
-            ok = await tv.power_on()
+            ok = await tools.tv.power_on()
             if not ok:
                 raise HTTPException(504, "TV did not wake. Check 'Power On with Mobile' is enabled.")
         else:
-            async with tv_lock:
-                await tv.power_off()
-        return {"ok": True, "power": await tv.power_state()}
+            async with tools.lock:
+                await tools.tv.power_off()
+        return {"ok": True, "power": await tools.tv.power_state()}
 
-    # -- agent tools (Claude plugin, Duet): same contract as tools.json
-    tools = Tools(tv, tv_lock, Store(config_path.parent))
-
+    # -- agent tools (Claude plugin, Duet): the contract in tools.json, with the guide
+    #    that tells a model how to use them and the household's notes
     @app.get("/api/tools", dependencies=auth)
     async def list_tools() -> dict[str, Any]:
         return tools.list()
 
     @app.post("/api/tools/{name}", dependencies=auth)
-    async def call_tool(name: str, request: Request) -> dict[str, str]:
+    async def call_tool(name: str, request: Request) -> dict[str, Any]:
         try:
             args = await request.json() if await request.body() else {}
         except ValueError:
@@ -262,7 +272,8 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
         if not isinstance(args, dict):
             raise HTTPException(422, "body must be a JSON object")
         try:
-            return {"result": await tools.call(name, args)}
+            result = await tools.call(name, args)
+            return {"result": str(result), "ok": result.ok}
         except UnknownTool:
             raise HTTPException(404, f"unknown tool {name}")
         except ValueError as e:
@@ -285,15 +296,15 @@ def create_app(tv: SamsungTV | None = None, access_key: str | None = None,
                         cmd = msg.get("cmd", "Click")
                         if cmd not in ("Click", "Press", "Release"):
                             raise ValueError("invalid cmd")
-                        async with tv_lock:
-                            await tv.send_key(str(msg["key"]), cmd)
+                        async with tools.lock:
+                            await tools.tv.send_key(str(msg["key"]), cmd)
                     elif "text" in msg:
-                        async with tv_lock:
-                            await tv.send_text(str(msg["text"])[:500], bool(msg.get("submit")))
+                        async with tools.lock:
+                            await tools.tv.send_text(str(msg["text"])[:500], bool(msg.get("submit")))
                     else:
                         raise ValueError("expected 'key' or 'text'")
                     await socket.send_json({"ok": True, "id": msg.get("id")})
-                except (TVError, ValueError) as e:
+                except (TVError, ValueError, Fail) as e:
                     await socket.send_json({"ok": False, "id": msg.get("id"), "error": str(e)})
         except WebSocketDisconnect:
             pass

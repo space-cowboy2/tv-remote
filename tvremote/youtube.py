@@ -3,7 +3,8 @@
 The TV's YouTube app can only be driven blind: type something into its search
 box and take the first result. That is only as good as what gets typed, so the
 hub first settles on one concrete video here (id, title, channel, length, live
-or not) and then types that video's id on the TV, which pins the first result.
+or not) and then types what brings that video up first: its id when YouTube's
+own search returns the video for it, otherwise its title.
 
 search() reads the public results page. YouTube can change that page at any
 time; when it does, search() raises YouTubeError and callers fall back to
@@ -24,6 +25,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 URL_ID_RE = re.compile(r"(?:v=|youtu\.be/|/shorts/|/embed/|/live/)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])")
 DATA_MARKERS = ("var ytInitialData = ", 'window["ytInitialData"] = ', "ytInitialData = ")
+PLAYER_MARKERS = ("var ytInitialPlayerResponse = ", 'window["ytInitialPlayerResponse"] = ', "ytInitialPlayerResponse = ")
 
 # Result-page filters (the `sp` parameter): videos only, videos over 20 minutes, live now.
 FILTERS = {"auto": "EgIQAQ==", "long": "EgQQARgC", "live": "EgJAAQ=="}
@@ -38,16 +40,19 @@ class YouTubeError(Exception):
 def extract_video_id(text: str) -> str | None:
     """The 11-character id from a URL or a bare id; None for anything else."""
     text = text.strip()
-    if VIDEO_ID_RE.match(text) and re.search(r"[0-9_-]|[a-z][A-Z]|[A-Z][a-z]", text):
+    # Eleven letters can also be a word ("Rachmaninov"). Ids nearly always carry a
+    # digit, "_", "-" or a capital past the first letter; callers still check by lookup.
+    if VIDEO_ID_RE.match(text) and re.search(r"[0-9_-]|.[A-Z]", text):
         return text
     m = URL_ID_RE.search(text)
     return m.group(1) if m else None
 
 
-def _get(url: str, timeout: float) -> str:
-    req = urllib.request.Request(url, headers={
-        "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9",
-        "Cookie": "CONSENT=YES+1; SOCS=CAI"})  # skips the EU consent page
+def _get(url: str, timeout: float, cookies: bool = True) -> str:
+    headers = {"User-Agent": UA, "Accept-Language": "en-US,en;q=0.9"}
+    if cookies:
+        headers["Cookie"] = "CONSENT=YES+1; SOCS=CAI"  # skips the EU consent page
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8", "replace")
@@ -158,12 +163,53 @@ def pick(results: list[dict[str, Any]], prefer: str = "auto",
     return fresh[0] if fresh else None
 
 
+def parse_watch(page: str, video_id: str) -> dict[str, Any] | None:
+    """One video's details from its watch page; None if the page holds none."""
+    for marker in PLAYER_MARKERS:
+        at = page.find(marker)
+        if at < 0:
+            continue
+        try:
+            data, _ = json.JSONDecoder().raw_decode(page, at + len(marker))
+        except ValueError:
+            continue
+        details = data.get("videoDetails") if isinstance(data, dict) else None
+        if not isinstance(details, dict) or details.get("videoId") != video_id or not details.get("title"):
+            continue
+        live = bool(details.get("isLive"))
+        seconds = int(details["lengthSeconds"]) if str(details.get("lengthSeconds", "")).isdigit() else None
+        if live or not seconds:
+            seconds = None
+        return {"id": video_id, "title": str(details["title"]), "channel": str(details.get("author") or ""),
+                "length": from_seconds(seconds), "seconds": seconds, "live": live, "views": None}
+    return None
+
+
+def from_seconds(seconds: int | None) -> str | None:
+    """10931 -> "3:02:11"."""
+    if not seconds:
+        return None
+    h, rest = divmod(int(seconds), 3600)
+    m, s = divmod(rest, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 def lookup(video_id: str, timeout: float = 8.0) -> dict[str, Any] | None:
-    """Title and channel of one video (public oEmbed endpoint). None if unknown."""
+    """Title, channel, length and live state of one video. Reads the watch page;
+    if that gives nothing, the public oEmbed endpoint (title and channel only).
+    None when YouTube knows no such video or cannot be reached."""
+    if not VIDEO_ID_RE.match(video_id):
+        return None
+    try:
+        found = parse_watch(_get(f"https://www.youtube.com/watch?v={video_id}&hl=en&gl=US", timeout), video_id)
+        if found:
+            return found
+    except YouTubeError:
+        pass
     url = "https://www.youtube.com/oembed?" + urllib.parse.urlencode(
         {"url": f"https://www.youtube.com/watch?v={video_id}", "format": "json"})
     try:
-        data = json.loads(_get(url, timeout))
+        data = json.loads(_get(url, timeout, cookies=False))
     except (YouTubeError, ValueError):
         return None
     if not isinstance(data, dict) or not data.get("title"):
