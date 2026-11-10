@@ -30,13 +30,11 @@ PROTOCOL = "2025-06-18"
 VERSION = "0.2.0"
 CALL_TIMEOUT = 180  # the hub gives its longest tool (play) 170 s
 
-# Kept short on purpose: hosts cut long server instructions. The full guide is get_guide.
-INSTRUCTIONS = """Runs the household's Samsung TV(s) through a local hub. You work out what the person wants; the tools do whole jobs and report evidence.
-- Before the first TV action in a conversation, call get_guide (how to handle requests, plus this household's preferences).
-- play finds and starts something (YouTube by default) and turns the TV on by itself. set_volume, set_power, playback, open_app, switch_input and schedule cover the controls. get_state gives follow-ups ("pause it", "quieter", "the other TV") their context.
-- Choose sensible defaults and act; ask only when a report says needs_user or two TVs are equally likely.
-- Reports list what the TV confirmed and what was only sent. The TV reports no playback state, so never say something is playing as a fact, and never report a failed call as done.
-- Never buy, rent, subscribe or change accounts on the TV unless asked for exactly that."""
+# Kept very short on purpose: hosts cut long server instructions, and a gateway in front of this server adds its
+# own before these. Everything else is in the guide (get_guide).
+INSTRUCTIONS = """Runs the household's Samsung TV(s) through a local hub. Each tool does a whole job and answers with a report: what the TV confirmed, what was only sent, what failed.
+- Call get_guide before the first TV action in a conversation. It says how to handle requests and holds this household's preferences.
+- The TV reports no playback state: never say something is playing as a fact, and never report a failed call as done."""
 
 EXTRA_TOOLS = [{
     "name": "get_guide",

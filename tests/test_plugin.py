@@ -107,7 +107,8 @@ def test_a_whole_conversation_through_the_plugin(hub, tmp_path):
         call(3, "get_guide"), call(4, "play", query="jazz music", prefer="long"),
         call(5, "set_volume", change=-3), call(6, "set_volume", level=500))
     assert init["result"]["serverInfo"]["name"] == "tv-remote"
-    assert "get_guide" in init["result"]["instructions"] and len(init["result"]["instructions"]) < 1500
+    # Short enough to survive behind a gateway that puts its own instructions first.
+    assert "get_guide" in init["result"]["instructions"] and len(init["result"]["instructions"]) < 500
     names = {t["name"] for t in tools["result"]["tools"]}
     assert {"play", "set_volume", "get_state", "schedule", "get_guide"} <= names
     assert all("inputSchema" in t for t in tools["result"]["tools"])
