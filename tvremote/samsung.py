@@ -31,6 +31,7 @@ import logging
 import re
 import ssl
 import time
+import urllib.parse
 from collections import deque
 from collections.abc import Callable
 from typing import Any
@@ -368,6 +369,7 @@ class SamsungTV:
             },
         })
         if submit:
+            await self.sleep(0.3)  # let the keyboard take the text before it is told to finish
             await self.submit_text()
 
     async def submit_text(self) -> None:
@@ -531,6 +533,24 @@ class SamsungTV:
         if data in (200, "200", True) or (isinstance(data, dict) and data.get("code") in (None, 200)):
             return "accepted"
         raise TVError(f"TV refused to launch app {app_id} ({data!r})")
+
+    async def dial_launch(self, app_id: str, params: dict[str, str]) -> bool:
+        """Open an app through the TV's DIAL server and hand it launch parameters,
+        which the app receives as if they were in its own address. YouTube reads
+        q=<words> and goes straight to the search results for them, running or
+        not, with nothing typed. True if the TV accepted the request; what the
+        app did with it cannot be seen from here."""
+        dial_name = DIAL_NAMES.get(app_id)
+        if not dial_name:
+            return False
+        body = urllib.parse.urlencode(params, quote_via=urllib.parse.quote).encode()
+        try:
+            code, _ = await asyncio.to_thread(
+                self._http, "POST", self.dial_port, f"/ws/apps/{dial_name}", timeout=6.0, body=body,
+                headers={"Content-Type": "text/plain; charset=utf-8", "Origin": "https://www.youtube.com"})
+        except OSError:
+            return False
+        return 200 <= code < 300
 
     async def close_app(self, app_id: str) -> bool:
         """Ask the TV to quit an app. True if the TV accepted the request."""

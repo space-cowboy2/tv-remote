@@ -429,7 +429,7 @@
  },
  {
   "name": "type_text",
-  "description": "Type into the TV's on-screen keyboard, which must already be open; submit presses its Done/Search.",
+  "description": "Type text on the TV in one call; never spell it yourself with send_keys. Into the TV's own on-screen keyboard when one is open (confirmed by the TV's echo). In YouTube, which draws its own keyboard, the hub walks the cursor over YouTube's key grid: about a second per character, and YouTube's search screen must be showing (run_macro youtube_open_search opens it from YouTube's home screen). Without submit the text is left in the box; with submit SEARCH is pressed and the first result ends up focused. On a TV where youtube_link is on, submit opens the results by link instead, instantly and from any YouTube screen. Anywhere else it answers ok false and types nothing.",
   "input_schema": {
    "type": "object",
    "properties": {
@@ -437,7 +437,16 @@
      "type": "string"
     },
     "submit": {
-     "type": "boolean"
+     "type": "boolean",
+     "description": "Also run the search (or press the keyboard's Done)."
+    },
+    "clear": {
+     "type": "boolean",
+     "description": "YouTube's key grid only: press CLEAR first, so the box holds just this text."
+    },
+    "key_delay_ms": {
+     "type": "integer",
+     "description": "YouTube's key grid only: pause between cursor keys, 50 to 2000. Default 200; raise it if letters go missing."
     },
     "tv": {
      "type": "string",
@@ -562,6 +571,26 @@
  {
   "name": "playback_check",
   "description": "Switch the read-only playback check for a TV on or off. Off by default. When on, play asks the TV's YouTube app, through YouTube's own remote link, what it is playing, so a started video can be reported as confirmed instead of only sent. It never starts, queues, pauses or changes anything on the TV. Call it only when the person asks for exactly this; it stays as set until changed.",
+  "input_schema": {
+   "type": "object",
+   "properties": {
+    "on": {
+     "type": "boolean"
+    },
+    "tv": {
+     "type": "string",
+     "description": "Only when the request is about a TV other than the one last used: its id or name from get_state, or \"other\" when exactly two are paired."
+    }
+   },
+   "required": [
+    "on"
+   ],
+   "additionalProperties": false
+  }
+ },
+ {
+  "name": "youtube_link",
+  "description": "Switch YouTube's search link for a TV on or off. Off by default. When on, play and type_text with submit hand YouTube the search as a launch link: instant, nothing typed. A Samsung TV can treat that launch like a phone cast and open Multi View (split screen) unless its Autorun Multi View Casting setting is off. When off, searches are spelled on YouTube's own keyboard with the cursor. Call it only when the person asks for exactly this; it stays as set until changed.",
   "input_schema": {
    "type": "object",
    "properties": {

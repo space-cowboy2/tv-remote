@@ -28,7 +28,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from . import discovery, lounge, youtube
+from . import discovery, keyboards, lounge, youtube
 from .apps import APP_ALIASES, KNOWN_APPS, YOUTUBE_ID
 from .config import TVConfig, extra_path, load_all, slugify
 from .keys import is_valid_key, normalize_key
@@ -49,6 +49,10 @@ SCHEDULABLE = {"set_power", "set_volume", "playback", "play", "open_app", "send_
 PLAYBACK_KEYS = {"pause": "KEY_PAUSE", "resume": "KEY_PLAY", "stop": "KEY_STOP",
                  "forward": "KEY_FF", "rewind": "KEY_REWIND"}
 SEEK_STEP = 10  # seconds one FF/REW press moves in most apps; uncalibrated
+GRID_KEY_DELAY_MS = 200   # between cursor keys when spelling on an app's own keyboard
+GRID_MAX_SECONDS = 150.0  # a walk longer than this would outlast the caller's patience (plugin: 180 s)
+GRID_TITLE_CHARS = 60     # play spells at most this much of a title; enough to bring the video up first
+LINK_SETTLE = (5.0, 12.0)  # seconds for YouTube to show a linked search: already running, cold start
 INPUT_KEYS = {"hdmi": "KEY_HDMI", "hdmi1": "KEY_HDMI1", "hdmi2": "KEY_HDMI2", "hdmi3": "KEY_HDMI3",
               "hdmi4": "KEY_HDMI4", "tv": "KEY_TV", "source": "KEY_SOURCE"}
 
@@ -1006,6 +1010,48 @@ class Tools:
                              for r in results if r["id"] != target["id"]][:4]
         return out
 
+    async def _walk(self, h: TVHandle, walk: keyboards.Walk, delay_ms: int = GRID_KEY_DELAY_MS) -> None:
+        """Send a planned cursor walk, one remote key at a time."""
+        for key in walk.keys:
+            async with h.lock:
+                await h.tv.send_key(key)
+            await self.sleep(delay_ms / 1000)
+
+    async def _youtube_by_link(self, h: TVHandle, target: dict[str, Any], rep: Report) -> bool:
+        """Hand YouTube the search as a launch parameter, then press OK on the first
+        result, which the app focuses by itself. Nothing is typed. Only for a TV
+        where the household switched the link on (youtube_link): the launch goes
+        through DIAL, which a Samsung TV can treat like a phone cast and answer by
+        opening Multi View. False when the link is off or the TV did not take it;
+        the caller then opens the search box with keys instead."""
+        tv = h.tv
+        if not self._signals(h).get("youtube_link"):
+            return False
+        before = await tv.app_state(YOUTUBE)
+        if before == "missing" or not await tv.dial_launch(YOUTUBE, {"q": target["type"]}):
+            return False
+        state, waited = "stopped", 0.0
+        while waited < 15:
+            await self.sleep(1)
+            waited += 1
+            state = await tv.app_state(YOUTUBE)
+            if state in ("visible", "running"):
+                break
+        if state not in ("visible", "running"):
+            rep.steps.append("The TV accepted YouTube's search link, but YouTube did not come up; using keys instead.")
+            return False
+        rep.verified.append("YouTube is on screen (the TV reports it visible)." if state == "visible"
+                            else "YouTube is running (the TV reports it started).")
+        rep.steps.append(f"Opened YouTube's results for {target['type']!r} by link; nothing was typed.")
+        await self.sleep(LINK_SETTLE[before not in ("visible", "running")])  # results load; nothing reports when
+        await self._keys("KEY_ENTER", h=h)
+        rep.unverified.append("That the first result was the one started: the TV accepted the search link and OK "
+                              "was pressed, but the hub can't see the results.")
+        await self.sleep(2)
+        if await tv.app_state(YOUTUBE) == "stopped":
+            raise Fail("app_closed", "YouTube is no longer running after the result was selected.")
+        return True
+
     async def _youtube_on_tv(self, h: TVHandle, target: dict[str, Any], rep: Report) -> None:
         """Open YouTube, search for target["type"] and start the first result."""
         tv, macros = h.tv, self.store.macros()
@@ -1013,6 +1059,9 @@ class Tools:
             await self._steps(check_steps(macros["youtube_search"]["steps"]), target["type"], h)
             rep.unverified.append("Ran your saved youtube_search key sequence; none of its steps can be confirmed.")
             return
+        if await self._youtube_by_link(h, target, rep):
+            return
+        # No link on this TV: open the search box with keys and type into it.
         # Tries: a clean start; the same keys again where the app now stands (gets
         # past a "Who's watching?" screen or a slow start); a clean start with a
         # longer wait. A TV that stayed silent through a whole run before gets one.
@@ -1048,14 +1097,29 @@ class Tools:
                                   "the steps saved as youtube_open_search may not fit this TV.")
         async with h.lock:
             await tv.send_text(target["type"])
-        if await self._wait_text(h, target["type"], 3.0):
+        echoed = await self._wait_text(h, target["type"], 3.0)
+        if echoed:
             rep.verified.append(f"The TV's search box holds the text {target['type']!r}.")
         elif opened:
             rep.unverified.append("The search text was sent; the TV did not echo it back.")
-        async with h.lock:
-            await tv.submit_text()
-        await self.sleep(4)  # results load
-        await self._steps(check_steps(macros["youtube_pick_first"]["steps"]), h=h)
+        if echoed or opened:
+            async with h.lock:
+                await tv.submit_text()
+            await self.sleep(4)  # results load
+            await self._steps(check_steps(macros["youtube_pick_first"]["steps"]), h=h)
+        else:
+            # No keyboard announced and no echo: this YouTube draws its own keyboard,
+            # which takes nothing from the TV's text message. Spell it with the cursor.
+            # An id can't be spelled there (no capitals), so the title is.
+            words = (target.get("title") or target["type"])[:GRID_TITLE_CHARS]
+            walk = keyboards.plan(words, clear=True, submit=True)
+            await self._walk(h, walk)
+            rep.steps.append(f"Spelled {walk.typed!r} on YouTube's own keyboard with the cursor "
+                             f"({len(walk.keys)} key presses) and pressed SEARCH.")
+            rep.unverified.append("That the text reached YouTube's search box: it was spelled key by key on the app's "
+                                  "own keyboard, which reports nothing back.")
+            await self.sleep(5)  # results load, and the app moves to the first one by itself
+            await self._keys("KEY_ENTER", h=h)
         await self.sleep(2)
         if await tv.app_state(YOUTUBE) == "stopped":
             raise Fail("app_closed", "YouTube is no longer running after the result was selected.")
@@ -1301,14 +1365,58 @@ class Tools:
                 await self.sleep(delay / 1000)
         return "Sent " + ", ".join(sent) + ". (Sent only: the hub can't see what the TV did with them.)"
 
-    async def t_type_text(self, a: dict[str, Any]) -> str:
+    async def t_type_text(self, a: dict[str, Any]) -> Result:
+        """Three ways to get text onto the TV, tried in this order: the TV's own
+        keyboard (confirmed by its echo), YouTube's search link (submit), and a
+        cursor walk over YouTube's key grid (type only). Anything else is
+        reported as not typed rather than as sent."""
         text = a.get("text")
-        if not isinstance(text, str) or len(text) > 500:
-            raise ValueError("text must be a string up to 500 chars")
+        if not isinstance(text, str) or not text or len(text) > 500:
+            raise ValueError("text must be a non-empty string up to 500 chars")
+        submit, clear = bool(a.get("submit")), bool(a.get("clear"))
+        delay = a.get("key_delay_ms", GRID_KEY_DELAY_MS)
+        if not isinstance(delay, int) or not 50 <= delay <= 2000:
+            raise ValueError("key_delay_ms must be 50..2000")
         h = self._tv(a)
-        async with h.lock:
-            await h.tv.send_text(text, bool(a.get("submit")))
-        return f"Typed {len(text)} characters" + (" and submitted." if a.get("submit") else ".")
+        tv = h.tv
+        try:
+            async with self._busy(h, "typing"):
+                async with h.lock:
+                    await tv.send_text(text)
+                echoed = await self._wait_text(h, text, 1.5)
+                if echoed or tv.ime_open:
+                    if submit:
+                        await self.sleep(0.3)
+                        async with h.lock:
+                            await tv.submit_text()
+                    how = "the TV echoed it back" if echoed else "its keyboard is open, but it did not echo the text"
+                    return Result.of(f"Typed {len(text)} characters into the TV's keyboard ({how})"
+                                     + (" and submitted." if submit else "."))
+                state = await tv.app_state(YOUTUBE)
+                if state != "visible" and not (state == "running" and tv.rest_apps_ok is False):
+                    return Result.of(
+                        "Not typed. The TV's own keyboard is not open (it did not take the text), and the app on screen "
+                        "is not one whose keyboard the hub knows. Only YouTube's is known so far.", False)
+                if submit and self._signals(h).get("youtube_link") and await tv.dial_launch(YOUTUBE, {"q": text}):
+                    return Result.of(f"Searched YouTube for {text!r} by link; nothing had to be typed. "
+                                     "(Sent and accepted by the TV: the hub can't see the results.)")
+                walk = keyboards.plan(text, clear=clear, submit=submit)
+                if not walk.typed:
+                    return Result.of(f"Not typed: YouTube's keyboard has no key for any of {walk.skipped!r}.", False)
+                if len(walk.keys) * delay / 1000 > GRID_MAX_SECONDS:
+                    return Result.of(f"Not typed: {len(walk.keys)} key presses at {delay} ms each is longer than "
+                                     f"{GRID_MAX_SECONDS:g} s. Send shorter text or a smaller key_delay_ms.", False)
+                await self._walk(h, walk, delay)
+        except (Fail, TVError) as e:
+            return Result.of("Not typed. " + self._as_fail(e).message, False)
+        out = (f"Spelled {walk.typed!r} on YouTube's search keyboard with {len(walk.keys)} key presses"
+               + (", after CLEAR" if clear else "") + (", then SEARCH" if submit else "") + ".")
+        if walk.skipped:
+            out += f" Left out {walk.skipped!r}: that keyboard has no key for them."
+        if walk.typed != text and not walk.skipped:
+            out += " Capitals were typed as lower case."
+        return Result.of(out + " (Sent only: this assumes YouTube's search screen was showing with its letters page, "
+                               "and the hub can't see the box.)")
 
     async def t_wait(self, a: dict[str, Any]) -> str:
         s = a.get("seconds")
@@ -1331,6 +1439,23 @@ class Tools:
             "On: after play, the hub asks this TV's YouTube app what is playing and reports it. It never starts, "
             "queues or changes anything there." if a["on"] else
             "Off: nothing connects to this TV's YouTube app; play reports playback as not confirmed.")}, ensure_ascii=False)
+
+    async def t_youtube_link(self, a: dict[str, Any]) -> str:
+        if not isinstance(a.get("on"), bool):
+            raise ValueError("on must be true or false")
+        try:
+            h = self._tv(a, activate=False)
+        except Fail as f:
+            return Report("").render(f.message, goal_confirmed=False, fail=f)
+        self._signals(h)["youtube_link"] = a["on"]
+        self._save()
+        self._log("youtube_link", h, "on" if a["on"] else "off", "")
+        return json.dumps({"ok": True, "tv": h.title, "youtube_link": "on" if a["on"] else "off", "summary": (
+            "On: play, and type_text with submit, hand YouTube the search as a launch link: instant, nothing typed. "
+            "This TV may open Multi View (split screen) when the link arrives, unless its Autorun Multi View Casting "
+            "setting is off." if a["on"] else
+            "Off: searches are spelled on YouTube's own keyboard with the cursor, about a second per character.")},
+            ensure_ascii=False)
 
     async def t_remember(self, a: dict[str, Any]) -> str:
         note = " ".join(str(a.get("note", "")).split())

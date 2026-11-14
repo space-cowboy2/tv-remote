@@ -49,7 +49,7 @@ def test_list_matches_plugin_contract(client):
     assert names == {"get_state", "find_tvs", "pair_tv", "use_tv", "set_power", "set_volume", "play", "search_youtube",
                      "open_app", "list_apps", "playback", "switch_input", "schedule", "cancel_schedule", "skip_ad",
                      "open_twitch", "send_keys", "type_text", "wait", "run_macro", "list_macros", "save_macro",
-                     "playback_check", "remember"}
+                     "playback_check", "youtube_link", "remember"}
     assert all(hasattr(tools_mod.Tools, "t_" + n) for n in names)
     assert all(t["description"] and t["input_schema"]["type"] == "object" for t in body["tools"])
     assert body["notes"] == "" and "## Saying what happened" in body["guide"]
