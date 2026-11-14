@@ -27,7 +27,9 @@ from urllib.parse import parse_qs, urlparse
 
 from websockets.asyncio.server import Server, ServerConnection, serve
 
+from . import keyboards
 from .apps import DIAL_NAMES, YOUTUBE_ID
+from .keyboards import Cursor
 
 GUIDE = ["search", "home", "shorts", "subscriptions", "library"]
 
@@ -54,6 +56,12 @@ class FakeYouTube:
     ready_at: float = 0.0
     dropped: int = 0        # keys or text that landed nowhere
     trail: list[str] = field(default_factory=list)
+    # The 2024 Tizen app: search draws its own key grid, takes no text from the
+    # TV's keyboard channel and announces nothing. kb is the cursor on that grid,
+    # None while focus is in the suggestions beside it.
+    own_keyboard: bool = False
+    kb: Cursor | None = None
+    linked: str | None = None  # a search handed over at launch, shown once the app is ready
 
     def _go(self, state: str) -> None:
         self.state = state
@@ -72,6 +80,48 @@ class FakeYouTube:
     def _settle(self, now: float) -> None:
         if self.state == "loading" and now >= self.ready_at:
             self._go("picker" if self.account_picker else "browse")
+        if self.linked is not None and self.state not in ("closed", "loading", "picker"):
+            self.text, self.linked, self.playing = self.linked, None, None
+            self._search(focus=True)
+
+    def link(self, params: dict[str, str], now: float) -> None:
+        """Launch parameters, as DIAL hands them over. q=<words> opens the results
+        for those words with the first one focused, from any screen."""
+        if params.get("q", "").strip():
+            self.linked = params["q"]
+            self._settle(now)
+
+    def _search(self, focus: bool = False) -> None:
+        q = self.text.strip()
+        words = q.lower().split()
+        self.results = [q] if q in self.catalog else [
+            vid for vid, title in self.catalog.items() if words and all(w in title.lower() for w in words)]
+        self._go("results_focus" if self.results and focus else "results")
+
+    def _grid_key(self, key: str) -> None:
+        """One remote key on the app's own keyboard, by the rules in keyboards.py."""
+        cur = self.kb
+        if cur is None:
+            if key == "KEY_RIGHT":
+                self.kb = Cursor(0, 0, 0, 0)
+            return
+        if key == "KEY_ENTER":
+            label = cur.key()
+            if label == keyboards.CLEAR:
+                self.text = ""
+            elif label == keyboards.BACKSPACE:
+                self.text = self.text[:-1]
+            elif label == keyboards.SPACE:
+                self.text += " "
+            elif label == keyboards.SEARCH:
+                return self._search(focus=True)  # the real app moves to the first result by itself
+            elif label not in (keyboards.PAGE, keyboards.LANGUAGE):
+                self.text += label
+        nxt = cur.press(key)
+        if nxt is not None:
+            self.kb = nxt
+        elif key == "KEY_LEFT" and cur.col == 0:
+            self.kb = None  # into the suggestions; every other refused move is an edge, the cursor stays
 
     def key(self, key: str, now: float) -> str | None:
         """Apply one key. Returns "ime_open" when a text field takes focus."""
@@ -82,6 +132,7 @@ class FakeYouTube:
         elif s == "picker":
             if key == "KEY_ENTER":
                 self._go("browse")
+                self._settle(now)  # a search handed over at launch shows after the account is picked
         elif s == "browse":
             if key == "KEY_LEFT":
                 self.guide_index = 1
@@ -97,14 +148,16 @@ class FakeYouTube:
                 self._go("browse")
             elif key == "KEY_ENTER":
                 if GUIDE[self.guide_index] == "search":
-                    self.text = ""
+                    self.text, self.kb = "", None
                     self._go("search")
-                    return "ime_open"
+                    return None if self.own_keyboard else "ime_open"
                 self._go("browse")
         elif s == "search":
             if key == "KEY_RETURN":
                 self._go("guide")
-                return "ime_close"
+                return None if self.own_keyboard else "ime_close"
+            if self.own_keyboard:
+                self._grid_key(key)
         elif s == "results":
             if key == "KEY_RIGHT" and self.results:
                 self._go("results_focus")
@@ -139,7 +192,7 @@ class FakeYouTube:
 
     def type(self, text: str, now: float) -> bool:
         self._settle(now)
-        if self.state != "search":
+        if self.state != "search" or self.own_keyboard:
             self.dropped += 1
             return False
         self.text = text
@@ -147,13 +200,9 @@ class FakeYouTube:
 
     def submit(self, now: float) -> bool:
         self._settle(now)
-        if self.state != "search":
+        if self.state != "search" or self.own_keyboard:
             return False
-        q = self.text.strip()
-        words = q.lower().split()
-        self.results = [q] if q in self.catalog else [
-            vid for vid, title in self.catalog.items() if words and all(w in title.lower() for w in words)]
-        self._go("results")
+        self._search()
         return True
 
 
@@ -171,6 +220,7 @@ class FakeTV:
     received: list[dict[str, Any]] = field(default_factory=list)
     answers_installed_apps: bool = True  # 2024 firmware: False
     launched: list[str] = field(default_factory=list)
+    dial_launches: list[dict[str, str]] = field(default_factory=list)
     clients: list[str] = field(default_factory=list)
     ws_port: int = 0
     info_port: int = 0
@@ -183,6 +233,7 @@ class FakeTV:
     upnp: bool = True
     ime_events: bool = True    # False: the TV never announces its on-screen keyboard
     launch_works: bool = True  # False: the TV accepts launches and nothing opens
+    youtube_link: bool = False  # True: DIAL takes a launch with parameters (seen on the 2024 OLED)
     acks_ws_launch: bool = True
     volume: int = 12
     muted: bool = False
@@ -371,6 +422,15 @@ class FakeTV:
                 if method == "DELETE":
                     tv.close_app(app_id)
                     return self._send(200)
+                if method == "POST":
+                    length = int(self.headers.get("Content-Length") or 0)
+                    params = {k: v[0] for k, v in parse_qs(self.rfile.read(length).decode(errors="replace")).items()}
+                    if not tv.youtube_link or not tv.launch(app_id):
+                        return self._send(404)
+                    tv.dial_launches.append(params)
+                    if app_id == YOUTUBE_ID and tv.launch_works:
+                        tv.youtube.link(params, tv.now())
+                    return self._send(201)
                 state = "running" if app_id in tv.running else "stopped"
                 xml = (f'<?xml version="1.0" encoding="UTF-8"?><service xmlns="urn:dial-multiscreen-org:schemas:dial" '
                        f'dialVer="2.2"><name>{name}</name><options allowStop="true"/><state>{state}</state>'
@@ -442,6 +502,8 @@ class FakeTV:
             def do_POST(self) -> None:  # noqa: N802
                 if tv.power == "off":
                     return self._json(404)
+                if self.path.startswith("/ws/apps/"):
+                    return self._dial("POST")
                 if self.path.startswith("/upnp/control/"):
                     if not tv.upnp or tv.power != "on":
                         return self._send(404)

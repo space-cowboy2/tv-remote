@@ -24,7 +24,9 @@ Claude (understands the request) ──MCP──► plugin (claude-plugin/) ─�
 
 | Tool | Does | Confirmed by |
 |---|---|---|
-| `play` | Picks one video (YouTube search on the internet), wakes the TV, restarts YouTube, opens its search box, types, starts the first result | Power state, app state, the TV's keyboard announcements and text echo. Playback only with the playback check on (below) |
+| `play` | Picks one video (YouTube search on the internet), wakes the TV, restarts YouTube, opens its search box, types or spells the text, starts the first result. With `youtube_link` on: opens the results by link instead | Power state, app state, the TV's keyboard announcements and text echo where the TV gives them. Playback only with the playback check on (below) |
+| `type_text` | Text onto the TV in one call: the TV's own keyboard, or a cursor walk over YouTube's own key grid. See "Typing" below | The TV's echo for its own keyboard. The walk is sent only. Answers `ok: false` when the text has nowhere to go |
+| `youtube_link` | Switches YouTube's search link on or off for a TV. Off by default | Kept in the hub's saved state |
 | `search_youtube` | Lists videos (id, title, channel, length, live) so the model can choose by a constraint | Nothing touches the TV |
 | `set_volume` | Absolute level, relative change, mute on/off | Level and mute read back from the TV (UPnP) |
 | `set_power` | On / off | The TV's own PowerState |
@@ -35,7 +37,7 @@ Claude (understands the request) ──MCP──► plugin (claude-plugin/) ─�
 | `get_state` | Power, volume, mute, YouTube running, active TV, what was last started, timers, recent actions | Read from the TV, plus the hub's own record |
 | `find_tvs`, `pair_tv`, `use_tv` | Other TVs: what is on the network, pairing, switching | Pairing is confirmed by the TV accepting the hub |
 | `playback_check` | Switches the read-only playback check on or off for a TV. Off by default | Kept in the hub's saved state |
-| `send_keys`, `type_text`, `run_macro`, `save_macro`, `list_macros`, `wait`, `skip_ad`, `open_twitch`, `remember` | The plain remote, saved key sequences, notes | Sent only |
+| `send_keys`, `run_macro`, `save_macro`, `list_macros`, `wait`, `skip_ad`, `open_twitch`, `remember` | The plain remote, saved key sequences, notes | Sent only |
 
 Old names (`get_status`, `launch_app`, `play_youtube`) still answer.
 
@@ -77,20 +79,62 @@ Failure kinds: `no_tv_paired`, `unknown_tv`, `tv_unreachable`, `tv_did_not_wake`
    its id, else its title. If neither does, the report says the TV may pick another upload.
 3. **Wake** the TV if needed and wait for the TV to say it is on. `KEY_POWER` is a toggle, so
    it is only sent when the TV itself reports standby; otherwise Wake-on-LAN.
-4. **Restart YouTube** so it starts from its home screen, and wait for the TV to report it up.
-5. **Open the search box** with the saved sequence `youtube_open_search`, and wait for the TV
+4. **With `youtube_link` on: hand YouTube the search by link.** The hub launches YouTube
+   through the TV's DIAL server with `q=<text>`. The app goes straight to the results with the
+   first one focused; the hub presses OK once. Nothing is typed and YouTube is not restarted.
+   It is off by default because the 2024 OLED answered that launch by opening Multi View, as
+   it does for a phone cast (2026-11-13). With the link off, or refused, steps 5 to 7 run.
+5. **Restart YouTube** so it starts from its home screen, and wait for the TV to report it up.
+6. **Open the search box** with the saved sequence `youtube_open_search`, and wait for the TV
    to announce its on-screen keyboard. No announcement means the box did not open, so the hub
    tries again: the same keys where the app now stands (gets past "Who's watching?" and slow
    starts), then a clean start with a longer wait. After three tries it closes YouTube and
    fails with `search_box_not_found`.
-6. **Type, submit, start the first result** (`youtube_pick_first`), and confirm the typed text
-   through the TV's echo.
+7. **Type, submit, start the first result** (`youtube_pick_first`), and confirm the typed text
+   through the TV's echo. When the TV neither announced a keyboard nor echoed the text, this
+   YouTube draws its own keyboard: the hub spells the video's title on it with the cursor
+   (an id has capitals, which that keyboard lacks), presses SEARCH, and presses OK on the
+   first result, which the app focuses by itself. Run on the 2024 OLED on 2026-11-14: a
+   60-character title took 304 key presses and 93 seconds in all, and the right video started.
 
 Limits: one request per TV at a time (a second one waits, then answers `busy`); the same
 request inside 30 seconds is not run twice; everything stops at 170 seconds with `timeout`.
 
 A TV that never announces its keyboard gets all three tries once; after that the hub does one
 try and says the search box is unconfirmed.
+
+## Typing
+
+Samsung's text message (`SendInputString`) feeds the TV's **system** keyboard only. YouTube's
+search draws its own key grid and ignores it, and the remote channel has no letter keys. On
+the 2024 OLED the text was sent, the hub said "typed", and nothing appeared. `type_text` now
+tries, in order:
+
+1. **The TV's own keyboard.** Send the text and wait for the TV to echo it. An echo (or an
+   announced open keyboard) is the only case reported as typed there.
+2. **YouTube's search link**, when YouTube is on screen, `submit` is set and `youtube_link`
+   is on for the TV: the same `q=` launch `play` uses. From any YouTube screen, nothing typed.
+3. **A cursor walk over YouTube's key grid**, when YouTube is on screen:
+   `tvremote/keyboards.py` plans arrow keys and OK from a known key, and the hub sends them
+   (200 ms apart by default, about a second per character). It needs YouTube's search screen
+   showing with its letters page (`run_macro youtube_open_search` opens it from YouTube's
+   home screen). `clear` presses CLEAR first; `submit` presses SEARCH last. Capitals become
+   lower case and characters with no key are left out and named.
+4. **Otherwise `ok: false`**, saying nothing was typed.
+
+The grid and its move rules were read from YouTube's TV web app (youtube.com/tv, the app Tizen
+runs) in a desktop Chrome posing as a Tizen TV, and the planner's output was replayed there:
+the box held exactly the planned text. On the 2024 OLED, one `type_text` call for `jazz 42`
+left exactly that in the box (2026-11-14). If YouTube changes its keyboard, `keyboards.py` is
+the one place to update.
+
+What was tried and is not used:
+
+- A DIAL launch with `v=<video id>`: the 2024 OLED opened Multi View and did not play.
+- Samsung's own launch event (`ed.apps.launch`, `DEEP_LINK`, `metaTag: q=...`): the TV neither
+  acknowledged it nor passed the search to YouTube.
+- Letter keys: the remote channel has none. YouTube's app itself takes real keystrokes, so a
+  USB or Bluetooth keyboard device would type in it directly.
 
 ## The playback check (optional, off by default)
 
@@ -134,6 +178,9 @@ the way the client expects, is only known after a first run with someone watchin
 - **Other brands.** `find_tvs` lists them as not controllable.
 - **Purchases and account changes.** The guide forbids them unless asked for explicitly.
 - **Casting.** The hub never casts. The playback check joins YouTube's remote link to listen, and starts nothing.
+  The search link (`youtube_link`, off by default) is an app launch with a parameter: no remote session is opened and
+  no video is named to the app. A Samsung TV can still react to it as it does to a cast, by opening Multi View.
+- **Type into other apps' own keyboards.** Only YouTube's grid is known. `type_text` says so instead of reporting text as sent.
 
 ## Acceptance criteria
 

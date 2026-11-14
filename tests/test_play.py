@@ -96,11 +96,18 @@ async def test_play_fails_plainly_when_the_search_box_never_opens(rig, monkeypat
 
 
 async def test_play_on_a_tv_that_never_announces_its_keyboard(rig):
+    """What the 2024 OLED does: YouTube draws its own keyboard, so the TV announces
+    nothing and its text message lands nowhere. The hub spells the title with the
+    cursor instead."""
     rig.tv.ime_events = False
+    rig.tv.youtube.own_keyboard = True
     r = await rig.call("play", query="jazz music", prefer="long")
     assert rig.tv.youtube.playing == JAZZ
+    assert rig.tv.youtube.text == "jazz music - relaxing cafe mix"
     assert r["ok"] and r["status"] == "partly_verified"
     assert said(r, "search box opened", "not_verified") and not said(r, "search box opened")
+    assert said(r, "spelled key by key", "not_verified") and any("Spelled" in s for s in r["steps"])
+    assert rig.tv.dial_launches == []  # the link is off unless switched on
     launches = len(rig.tv.launched)
     r = await rig.call("play", query="relaxing piano", prefer="long")  # learned: one try from now on
     assert len(rig.tv.launched) == launches + 1 and rig.tv.youtube.playing == "relaxPIANO1"

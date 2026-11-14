@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+Text entry that lands. On the 2024 OLED, YouTube's search ignored the TV's text message and `type_text` still answered "typed". See "Typing" in [docs/CONVERSATION.md](docs/CONVERSATION.md).
+
+- `type_text`: one call. The TV's own keyboard, confirmed by its echo; in YouTube, a cursor walk over the app's own key grid (`submit` presses SEARCH, `clear`, `key_delay_ms`). Answers `ok: false` when the text has nowhere to go, instead of reporting it as sent. Run on the 2024 OLED: `jazz 42` landed exactly.
+- `play`: on a TV whose YouTube takes no text, spells the chosen video's title with the cursor, presses SEARCH and starts the first result. Run on the 2024 OLED: the right video started (93 s for a 60-character title).
+- `youtube_link` (off by default): hands YouTube the search as a launch parameter (`q=`, through DIAL) so nothing is typed. Off because the 2024 OLED opened Multi View when the launch arrived.
+- `tvremote/keyboards.py`: YouTube's search keyboard (letters and symbols pages) and a shortest-path planner, checked against YouTube's TV web app.
+- Simulated TV: a YouTube with its own keyboard and the launch link, as seen on the 2024 OLED.
+- Tests: 218.
+
 ## 0.2.0 (2026-11-10)
 
 Conversational control: the agent tools do whole jobs and answer with evidence. See [docs/CONVERSATION.md](docs/CONVERSATION.md).
